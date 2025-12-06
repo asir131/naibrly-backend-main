@@ -596,87 +596,61 @@ exports.getCustomerAllRequests = async (req, res) => {
 exports.getProviderRequests = async (req, res) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
-    const skip = (page - 1) * limit;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const filter = { provider: req.user._id };
     if (status) filter.status = status;
 
-    const serviceRequests = await ServiceRequest.find(filter)
-      .populate(
-        "customer",
-        "firstName lastName email phone profileImage address"
-      )
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    const [serviceRequests, requestsTotal] = await Promise.all([
+      ServiceRequest.find(filter)
+        .populate(
+          "customer",
+          "firstName lastName email phone profileImage address"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      ServiceRequest.countDocuments(filter),
+    ]);
 
-    const total = await ServiceRequest.countDocuments(filter);
-
-    // Also fetch bundles assigned to this provider
+    // Bundles assigned to this provider
     const bundleFilter = { provider: req.user._id };
     if (status) bundleFilter.status = status;
 
-    const bundles = await Bundle.find(bundleFilter)
-      .populate("creator", "firstName lastName email phone profileImage address")
-      .populate(
-        "participants.customer",
-        "firstName lastName email phone profileImage address"
-      )
-      .sort({ createdAt: -1 });
-
-    // Flatten bundle participants into individual "requests"
-    const bundleRequests = [];
-    bundles.forEach((bundle) => {
-      const participants = bundle.participants || [];
-      participants.forEach((p, idx) => {
-        bundleRequests.push({
-          _id: `${bundle._id}-${p.customer?._id || idx}`,
-          bundleId: bundle._id,
-          title: bundle.title,
-          category: bundle.category,
-          categoryTypeName: bundle.categoryTypeName,
-          services: bundle.services,
-          serviceDate: bundle.serviceDate,
-          serviceTimeStart: bundle.serviceTimeStart,
-          serviceTimeEnd: bundle.serviceTimeEnd,
-          status: bundle.status,
-          participant: p.customer,
-          participantNumber: idx + 1,
-          participantsCount: participants.length,
-          creator: bundle.creator,
-          createdAt: bundle.createdAt,
-        });
-      });
-    });
-
-    // Format response for frontend
-    const formattedRequests = serviceRequests.map((request) => ({
-      _id: request._id,
-      serviceType: request.serviceType,
-      problem: request.problem,
-      note: request.note,
-      scheduledDate: request.scheduledDate,
-      status: request.status,
-      price: request.price,
-      estimatedHours: request.estimatedHours,
-      commission: request.commission,
-      customer: request.customer,
-      createdAt: request.createdAt,
-      providerNotes: request.providerNotes,
-    }));
+    const [bundles, bundlesTotal] = await Promise.all([
+      Bundle.find(bundleFilter)
+        .populate(
+          "creator",
+          "firstName lastName email phone profileImage address"
+        )
+        .populate(
+          "participants.customer",
+          "firstName lastName email phone profileImage address"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Bundle.countDocuments(bundleFilter),
+    ]);
 
     res.json({
       success: true,
       data: {
-        serviceRequests: formattedRequests,
-        bundles: {
-          requests: bundleRequests,
-          total: bundleRequests.length,
+        serviceRequests: {
+          items: serviceRequests,
+          pagination: {
+            current: parseInt(page),
+            total: requestsTotal,
+            pages: Math.ceil(requestsTotal / parseInt(limit)),
+          },
         },
-        pagination: {
-          current: parseInt(page),
-          total,
-          pages: Math.ceil(total / limit),
+        bundles: {
+          items: bundles,
+          pagination: {
+            current: parseInt(page),
+            total: bundlesTotal,
+            pages: Math.ceil(bundlesTotal / parseInt(limit)),
+          },
         },
       },
     });
