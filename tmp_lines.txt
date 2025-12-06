@@ -1,0 +1,40 @@
+          finalPrice: finalPrice,
+          discountPercent: updatedBundle.bundleDiscount,
+        };
+        updatedBundle.finalPrice = finalPrice;
+
+        await updatedBundle.save();
+        console.log("💰 Updated bundle pricing with provider rates:", {
+          totalPrice,
+          discountAmount,
+          finalPrice,
+          services: updatedBundle.services,
+        });
+      }
+
+      // Create a SINGLE conversation for the bundle
+      try {
+        const existingConversation = await Conversation.findOne({
+          bundleId: bundle._id,
+        });
+
+        if (!existingConversation) {
+          // Create one conversation for the bundle creator with provider
+          const conversation = new Conversation({
+            customerId: bundle.creator, // Bundle creator is the main customer
+            providerId: bundle.provider,
+            bundleId: bundle._id,
+            messages: [],
+            isActive: true,
+          });
+          await conversation.save();
+          console.log("✅ Created bundle conversation:", conversation._id);
+        } else {
+          console.log("✅ Bundle conversation already exists");
+        }
+      } catch (conversationError) {
+        console.error("❌ Conversation creation error:", conversationError);
+        // Don't fail the whole request if conversation creation fails
+      }
+    } else if (status === "declined") {
+      statusNote =

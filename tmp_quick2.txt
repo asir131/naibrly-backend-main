@@ -1,0 +1,200 @@
+          customerId: conv.customerId._id || conv.customerId,
+          customerName: conv.customerId?.firstName + ' ' + conv.customerId?.lastName,
+          providerId: conv.providerId._id || conv.providerId,
+          messageCount: conv.messages.length,
+          lastMessage: conv.lastMessage,
+          lastMessageAt: conv.lastMessageAt,
+        })),
+        message: `Joined ${conversations.length} conversation(s) for bundle ${bundle.title}`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    console.log(`✅ Provider joined ${conversations.length} conversation(s) for bundle ${bundleId}`);
+    
+  } catch (error) {
+    console.error("❌ Provider join bundle error:", error);
+    throw error;
+  }
+}
+
+// New function to get bundle participants for provider
+async function handleGetBundleParticipants(socket, data) {
+  try {
+    const { bundleId } = data;
+    
+    if (!bundleId) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "bundleId is required" }
+      });
+      return;
+    }
+
+    if (socket.userRole !== "provider") {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "Only providers can use this endpoint" }
+      });
+      return;
+    }
+
+    const bundle = await Bundle.findById(bundleId)
+      .populate("creator", "firstName lastName profileImage email phone")
+      .populate("participants.customer", "firstName lastName profileImage email phone")
+      .populate("providerOffers.provider");
+
+    if (!bundle) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "Bundle not found" }
+      });
+      return;
+    }
+
+    // Check if provider has access
+    const isProvider = bundle.provider && socket.userId === bundle.provider._id.toString();
+    const isOfferProvider = bundle.providerOffers?.some(
+      (offer) => offer.provider && offer.provider._id.toString() === socket.userId
+    );
+
+    if (!isProvider && !isOfferProvider) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "Access denied to this bundle" }
+      });
+      return;
+    }
+
+    // Get all participants including creator
+    const participants = [];
+    
+    if (bundle.creator) {
+      participants.push({
+        _id: bundle.creator._id,
+        firstName: bundle.creator.firstName,
+        lastName: bundle.creator.lastName,
+        profileImage: bundle.creator.profileImage,
+        email: bundle.creator.email,
+        phone: bundle.creator.phone,
+        role: "creator",
+        joinedAt: bundle.createdAt,
+      });
+    }
+
+    bundle.participants?.forEach((participant) => {
+      if (participant.customer) {
+        participants.push({
+          _id: participant.customer._id,
+          firstName: participant.customer.firstName,
+          lastName: participant.customer.lastName,
+          profileImage: participant.customer.profileImage,
+          email: participant.customer.email,
+          phone: participant.customer.phone,
+          role: "participant",
+          joinedAt: participant.joinedAt,
+        });
+      }
+    });
+
+    // Get existing conversations
+    const existingConversations = await Conversation.find({
+      bundleId,
+      providerId: socket.userId,
+    }).select("customerId");
+
+    const existingCustomerIds = existingConversations.map(conv => conv.customerId.toString());
+
+    socket.emit("message", {
+      type: "bundle_participants",
+      data: {
+        bundleId: bundleId,
+        bundleTitle: bundle.title,
+        participants: participants,
+        existingConversations: existingCustomerIds,
+        totalParticipants: participants.length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+  } catch (error) {
+    console.error("❌ Get bundle participants error:", error);
+    socket.emit("message", {
+      type: "error",
+      data: { message: "Failed to get bundle participants: " + error.message }
+    });
+  }
+}
+
+// Helper function to emit realtime quick messages
+const emitRealtimeQuickMessage = async (conversationId, messageData) => {
+  try {
+    // Emit to everyone in the conversation room
+    io.to(`conversation_${conversationId}`).emit("message", {
+      type: "new_quick_message",
+      data: messageData
+    });
+
+    // Also emit a general new_message event for compatibility
+    io.to(`conversation_${conversationId}`).emit("message", {
+      type: "new_message",
+      data: messageData
+    });
+
+    console.log(`📤 Realtime quick message emitted to conversation ${conversationId}`);
+  } catch (error) {
+    console.error("❌ Error emitting realtime message:", error);
+  }
+};
+
+// Realtime Quick Chat Handler
+async function handleSendQuickChat(socket, data) {
+  try {
+    console.log("💬 Send quick chat request:", data);
+
+    if (!socket.userId || !socket.userRole) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "Authentication required to send messages" },
+      });
+      return;
+    }
+
+    const { requestId, bundleId, quickChatId, customerId } = data;
+
+    if (!quickChatId) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "quickChatId is required" },
+      });
+      return;
+    }
+
+    // Get quick chat
+    const quickChat = await QuickChat.findOne({
+      _id: quickChatId,
+      isActive: true,
+      $or: [
+        { createdBy: socket.userId },
+        { createdByRole: "admin" },
+        { createdByRole: socket.userRole },
+      ],
+    });
+
+    if (!quickChat) {
+      socket.emit("message", {
+        type: "error",
+        data: { message: "Quick chat not found or access denied" },
+      });
+      return;
+    }
+
+    // Get or create conversation
+    const conversation = await getOrCreateConversationV2(socket, {
+      requestId,
+      bundleId,
+      customerIdForBundle: customerId,
+    });
+
+    if (!conversation) {
+      socket.emit("message", {

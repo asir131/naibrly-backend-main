@@ -1,0 +1,37 @@
+const popularUSBanks = [
+  { name: "Bank of America", code: "BOFA", routingNumber: "026009593" },
+  { name: "JPMorgan Chase Bank", code: "CHASE", routingNumber: "021000021" },
+  { name: "Wells Fargo Bank", code: "WELLS", routingNumber: "121000248" },
+  { name: "Citibank", code: "CITI", routingNumber: "021000089" },
+  { name: "U.S. Bank", code: "USB", routingNumber: "110000000" },
+  { name: "Truist Bank", code: "TRUIST", routingNumber: "061000104" },
+  { name: "PNC Bank", code: "PNC", routingNumber: "043000096" },
+  { name: "TD Bank", code: "TD", routingNumber: "031201360" },
+  { name: "Capital One", code: "CAPONE", routingNumber: "056073502" },
+  { name: "HSBC Bank USA", code: "HSBC", routingNumber: "022000020" },
+  { name: "Citizens Bank", code: "CITIZENS", routingNumber: "011500120" },
+  { name: "Fifth Third Bank", code: "53", routingNumber: "042000314" },
+  { name: "KeyBank", code: "KEY", routingNumber: "041001039" },
+  { name: "Morgan Stanley Bank", code: "MS", routingNumber: "044000037" },
+  { name: "Goldman Sachs Bank USA", code: "GS", routingNumber: "026007993" },
+  { name: "American Express Bank", code: "AMEX", routingNumber: "124085244" },
+  { name: "Discover Bank", code: "DISCOVER", routingNumber: "031100649" },
+  { name: "Ally Bank", code: "ALLY", routingNumber: "124003116" },
+  { name: "Charles Schwab Bank", code: "SCHWAB", routingNumber: "121202211" },
+  { name: "USAA Bank", code: "USAA", routingNumber: "314074269" },
+  {
+    name: "Navy Federal Credit Union",
+    code: "NAVYFCU",
+    routingNumber: "256074974",
+  },
+  { name: "Silicon Valley Bank", code: "SVB", routingNumber: "121140399" },
+  { name: "First Republic Bank", code: "FRB", routingNumber: "321081669" },
+  { name: "Regions Bank", code: "REGIONS", routingNumber: "062005690" },
+  {
+    name: "Huntington National Bank",
+    code: "HUNTINGTON",
+    routingNumber: "044000024",
+  },
+];
+
+module.exports = popularUSBanks;

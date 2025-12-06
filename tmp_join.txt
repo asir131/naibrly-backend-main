@@ -1,0 +1,120 @@
+    });
+    bundle.currentParticipants += 1;
+
+    // Check if bundle is now full
+    if (bundle.currentParticipants >= bundle.maxParticipants) {
+      bundle.status = "full";
+    }
+
+    await bundle.save();
+
+    // Populate for response
+    await bundle.populate([
+      { path: "creator", select: "firstName lastName profileImage" },
+      {
+        path: "participants.customer",
+        select: "firstName lastName profileImage",
+      },
+      { path: "provider", select: "businessNameRegistered businessLogo" },
+    ]);
+
+    // Calculate pricing for the joining customer
+    const pricing = bundle.calculateCustomerPrice();
+
+    res.json({
+      success: true,
+      message: "Successfully joined the bundle",
+      data: {
+        bundle: {
+          ...bundle.toObject(),
+          pricing: pricing,
+          availableSpots: bundle.maxParticipants - bundle.currentParticipants,
+        },
+        joinedAs: {
+          customerId: customerId,
+          address: joinAddress,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Join bundle error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to join bundle",
+      error: error.message,
+    });
+  }
+};
+
+// Get available bundles by zip code (Public endpoint)
+exports.getBundlesByZipCode = async (req, res) => {
+  try {
+    const { zipCode, category, page = 1, limit = 10 } = req.query;
+
+    if (!zipCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Zip code is required",
+      });
+    }
+
+    const filter = {
+      zipCode: zipCode,
+      status: { $in: ["pending", "accepted"] },
+      expiresAt: { $gt: new Date() },
+      currentParticipants: { $lt: "$maxParticipants" }, // Has available spotss
+    };
+
+    if (category) {
+      filter.category = category;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [bundles, total] = await Promise.all([
+      Bundle.find(filter)
+        .populate("creator", "firstName lastName profileImage")
+        .populate("participants.customer", "firstName lastName profileImage")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Bundle.countDocuments(filter),
+    ]);
+
+    // Add pricing and available spots information to each bundle
+    const bundlesWithDetails = bundles.map((bundle) => {
+      const pricing = bundle.calculateCustomerPrice();
+      return {
+        ...bundle.toObject(),
+        pricing: pricing,
+        availableSpots: bundle.maxParticipants - bundle.currentParticipants,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        bundles: bundlesWithDetails,
+        pagination: {
+          current: parseInt(page),
+          total,
+          pages: Math.ceil(total / parseInt(limit)),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get bundles by zip code error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bundles",
+      error: error.message,
+    });
+  }
+};
+
+// Get bundle details
+exports.getBundleDetails = async (req, res) => {
+  try {
+    const { bundleId } = req.params;
+
+    const bundle = await Bundle.findById(bundleId)

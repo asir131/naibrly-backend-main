@@ -1,0 +1,40 @@
+
+    // Add provider offer
+    bundle.providerOffers.push({
+      provider: providerId,
+      message: `Provider ${provider.businessNameRegistered} accepted this bundle directly`,
+      status: "accepted",
+    });
+
+    // Add status history
+    bundle.statusHistory.push({
+      status: "accepted",
+      note: `Bundle accepted by ${provider.businessNameRegistered}`,
+      changedBy: "provider",
+      timestamp: new Date(),
+    });
+
+    await bundle.save();
+
+    // Create separate conversations for each participant
+    for (const participant of bundle.participants) {
+      const conversation = new Conversation({
+        customerId: participant.customer,
+        providerId: bundle.provider,
+        bundleId: bundle._id,
+        messages: [],
+        isActive: true,
+      });
+      await conversation.save();
+    }
+
+    // Populate for response
+    await bundle.populate([
+      {
+        path: "provider",
+        select: "businessNameRegistered businessLogo rating phone email",
+      },
+      { path: "creator", select: "firstName lastName profileImage phone" },
+      {
+        path: "participants.customer",
+        select: "firstName lastName profileImage",

@@ -1,0 +1,40 @@
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    // Accept this offer and reject others
+    bundle.providerOffers.forEach((off) => {
+      if (off._id.toString() === offerId) {
+        off.status = "accepted";
+      } else {
+        off.status = "rejected";
+      }
+    });
+
+    bundle.provider = offer.provider;
+    bundle.status = "accepted";
+
+    await bundle.save();
+
+    // Create separate conversations for each participant with provider
+    for (const participant of bundle.participants) {
+      const conversation = new Conversation({
+        customerId: participant.customer,
+        providerId: bundle.provider,
+        bundleId: bundle._id,
+        messages: [],
+        isActive: true,
+      });
+      await conversation.save();
+    }
+
+    res.json({
+      success: true,
+      message:
+        "Provider offer accepted successfully. Separate conversations created for each participant.",
+      data: {
+        bundle,
+      },
