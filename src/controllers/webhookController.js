@@ -98,8 +98,14 @@ const handleCheckoutSessionCompleted = async (session) => {
 
     console.log("📋 Current money request status:", moneyRequest.status);
 
-    // Only update if payment is actually paid and request is not already paid
-    if (payment_status === "paid" && moneyRequest.status !== "paid") {
+    // Treat "paid" or "complete" as successful payment
+    const isPaid =
+      payment_status === "paid" ||
+      session.status === "complete" ||
+      session.payment_status === "paid";
+
+    // Only update if payment is successful and request is not already paid
+    if (isPaid && moneyRequest.status !== "paid") {
       console.log("🔄 Updating money request to paid status...");
 
       moneyRequest.status = "paid";

@@ -61,7 +61,7 @@ router.get(
   "/share/:shareToken",
   auth,
   authorize("customer"),
-  bundleController.joinBundleViaShareToken
+  bundleController.getBundleByShareToken
 );
 router.post(
   "/:bundleId/review",

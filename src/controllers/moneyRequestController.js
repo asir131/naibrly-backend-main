@@ -409,11 +409,19 @@ const getProviderMoneyRequests = async (req, res) => {
 // Get money requests for customer
 const getCustomerMoneyRequests = async (req, res) => {
   try {
-    const { status, page = 1, limit = 10 } = req.query;
+    const {
+      status,
+      page = 1,
+      limit = 10,
+      serviceRequestId,
+      bundleId,
+    } = req.query;
     const customerId = req.user._id;
 
     const filter = { customer: customerId };
     if (status) filter.status = status;
+    if (serviceRequestId) filter.serviceRequest = serviceRequestId;
+    if (bundleId) filter.bundle = bundleId;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -559,6 +567,25 @@ const setAmountAndPay = async (req, res) => {
     moneyRequest._statusChangedBy = customerId;
     moneyRequest._statusChangedByRole = "customer";
 
+    // Build frontend success/cancel URLs so the user returns to the app (conversation page)
+    const frontendBase =
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      "http://localhost:3000";
+    const targetSlug = moneyRequest.serviceRequest
+      ? `request-${moneyRequest.serviceRequest}`
+      : moneyRequest.bundle
+      ? `bundle-${moneyRequest.bundle}`
+      : "";
+
+    const successUrl = targetSlug
+      ? `${frontendBase}/conversation/${targetSlug}?paymentSuccess=1&moneyRequestId=${moneyRequestId}&session_id={CHECKOUT_SESSION_ID}`
+      : `${frontendBase}/payment-success?moneyRequestId=${moneyRequestId}&session_id={CHECKOUT_SESSION_ID}`;
+
+    const cancelUrl = targetSlug
+      ? `${frontendBase}/conversation/${targetSlug}?paymentCancelled=1`
+      : `${frontendBase}/payment-cancelled?moneyRequestId=${moneyRequestId}`;
+
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -576,12 +603,8 @@ const setAmountAndPay = async (req, res) => {
         },
       ],
       mode: "payment",
-      success_url: `${
-        process.env.SERVER_URL || "http://localhost:5000"
-      }/api/money-requests/${moneyRequestId}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${
-        process.env.SERVER_URL || "http://localhost:5000"
-      }/api/money-requests/${moneyRequestId}/payment-canceled`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       customer_email: moneyRequest.customer.email,
       metadata: {
         moneyRequestId: moneyRequestId.toString(),
@@ -821,7 +844,26 @@ const processPayment = async (req, res) => {
       });
     }
 
-    // Create Stripe Checkout Session with backend success URL
+    // Build frontend success/cancel URLs so the user returns to the app (conversation page)
+    const frontendBase =
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      "http://localhost:3000";
+    const targetSlug = moneyRequest.serviceRequest
+      ? `request-${moneyRequest.serviceRequest}`
+      : moneyRequest.bundle
+      ? `bundle-${moneyRequest.bundle}`
+      : "";
+
+    const successUrl = targetSlug
+      ? `${frontendBase}/conversation/${targetSlug}?paymentSuccess=1&moneyRequestId=${moneyRequestId}&session_id={CHECKOUT_SESSION_ID}`
+      : `${frontendBase}/payment-success?moneyRequestId=${moneyRequestId}&session_id={CHECKOUT_SESSION_ID}`;
+
+    const cancelUrl = targetSlug
+      ? `${frontendBase}/conversation/${targetSlug}?paymentCancelled=1`
+      : `${frontendBase}/payment-cancelled?moneyRequestId=${moneyRequestId}`;
+
+    // Create Stripe Checkout Session with frontend success URL
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
@@ -838,13 +880,8 @@ const processPayment = async (req, res) => {
         },
       ],
       mode: "payment",
-      // Redirect to backend API endpoint instead of frontend
-      success_url: `${
-        process.env.SERVER_URL || "http://localhost:5000"
-      }/api/money-requests/${moneyRequestId}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${
-        process.env.SERVER_URL || "http://localhost:5000"
-      }/api/money-requests/${moneyRequestId}/payment-canceled`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       customer_email: moneyRequest.customer.email,
       metadata: {
         moneyRequestId: moneyRequestId.toString(),
@@ -929,10 +966,10 @@ const handlePaymentSuccess = async (req, res) => {
     });
 
     // Find the money request
-    const moneyRequest = await MoneyRequest.findOne({
-      _id: moneyRequestId,
-      customer: customerId,
-    }).populate("customer provider");
+    // Be tolerant: look up by id first (metadata customer may be missing)
+    const moneyRequest = await MoneyRequest.findById(moneyRequestId).populate(
+      "customer provider"
+    );
 
     if (!moneyRequest) {
       return res.status(404).json({
@@ -942,41 +979,53 @@ const handlePaymentSuccess = async (req, res) => {
     }
 
     // Check if payment was successful
-    if (session.payment_status === "paid") {
-      // Double-check if webhook already updated the status
-      if (moneyRequest.status !== "paid") {
-        console.log("Payment successful but status not updated by webhook yet");
+    const isPaid =
+      session.payment_status === "paid" ||
+      session.status === "complete" ||
+      session.payment_intent?.status === "succeeded";
 
-        // You can optionally update the status here as a fallback
-        moneyRequest.status = "paid";
-        moneyRequest.paymentDetails = {
-          ...moneyRequest.paymentDetails,
-          paidAt: new Date(),
-          transactionId: session.id,
-          paymentIntentId: session.payment_intent?.id,
-          stripeCustomerId: session.customer,
-          amountReceived: session.amount_total / 100,
-          status: "completed",
-        };
+        if (isPaid) {
+      // Force status to paid (Stripe authoritative)
+      moneyRequest.status = "paid";
+      moneyRequest.paymentDetails = {
+        ...moneyRequest.paymentDetails,
+        paidAt: new Date(),
+        transactionId: session.id,
+        paymentIntentId: session.payment_intent?.id,
+        stripeCustomerId: session.customer,
+        amountReceived: session.amount_total / 100,
+        status: "completed",
+      };
 
-        // Update status history
-        if (
-          moneyRequest.statusHistory &&
-          Array.isArray(moneyRequest.statusHistory)
-        ) {
-          moneyRequest.statusHistory.push({
-            status: "paid",
-            timestamp: new Date(),
-            note: "Payment completed via Stripe Checkout (direct update)",
-            changedBy: customerId,
-            changedByRole: "customer",
-          });
-        }
+      if (
+        moneyRequest.statusHistory &&
+        Array.isArray(moneyRequest.statusHistory)
+      ) {
+        moneyRequest.statusHistory.push({
+          status: "paid",
+          timestamp: new Date(),
+          note: "Payment completed via Stripe Checkout (success handler)",
+          changedBy: customerId || moneyRequest.customer?._id,
+          changedByRole: "customer",
+        });
+      }
 
-        await moneyRequest.save();
-        console.log(
-          "✅ Money request updated to paid status via direct update"
-        );
+      await moneyRequest.save();
+      console.log("Money request updated to paid status via success handler");
+    const wantsJson =
+        (req.headers.accept && req.headers.accept.includes("application/json")) ||
+        req.query.format === "json";
+
+      if (wantsJson) {
+        return res.json({
+          success: true,
+          message: "Payment successful",
+          data: {
+            moneyRequestId: moneyRequest._id,
+            status: moneyRequest.status,
+            amountPaid: session.amount_total / 100,
+          },
+        });
       }
 
       return res.send(`
@@ -1437,3 +1486,4 @@ module.exports = {
   handlePaymentCancel,
   checkPaymentStatus,
 };
+

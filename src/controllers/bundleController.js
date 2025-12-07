@@ -1954,6 +1954,62 @@ exports.joinBundleViaShareToken = async (req, res) => {
   }
 };
 
+// Get bundle details by share token (view-only, does not join)
+exports.getBundleByShareToken = async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+
+    const bundle = await Bundle.findOne({ shareToken })
+      .populate(
+        "creator",
+        "firstName lastName email phone profileImage address"
+      )
+      .populate(
+        "participants.customer",
+        "firstName lastName email phone profileImage address"
+      )
+      .populate(
+        "provider",
+        "businessNameRegistered businessLogo email phone businessAddress"
+      );
+
+    if (!bundle) {
+      return res.status(404).json({
+        success: false,
+        message: "Bundle not found or link has expired",
+      });
+    }
+
+    // If expired, do not allow join
+    if (new Date() > bundle.expiresAt) {
+      return res.status(400).json({
+        success: false,
+        message: "Bundle has expired",
+      });
+    }
+
+    const pricing = bundle.calculateCustomerPrice();
+
+    return res.json({
+      success: true,
+      data: {
+        bundle: {
+          ...bundle.toObject(),
+          pricing,
+          availableSpots: bundle.maxParticipants - bundle.currentParticipants,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get bundle by share token error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch bundle details",
+      error: error.message,
+    });
+  }
+};
+
 exports.initializeBundleSettings = initializeBundleSettings;
 
 // Add review to bundle (applies rating to all services and provider average)

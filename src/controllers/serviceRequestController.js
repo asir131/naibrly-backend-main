@@ -633,6 +633,53 @@ exports.getProviderRequests = async (req, res) => {
       Bundle.countDocuments(bundleFilter),
     ]);
 
+    // Total count of participant entries across matched bundles (for pagination)
+    const participantTotals = await Bundle.aggregate([
+      { $match: bundleFilter },
+      { $project: { participantCount: { $size: "$participants" } } },
+      { $group: { _id: null, total: { $sum: "$participantCount" } } },
+    ]);
+    const totalParticipantItems = participantTotals?.[0]?.total || bundlesTotal;
+
+    // Expand bundles so each participant becomes its own item for the provider view
+    const expandedBundles = bundles
+      .map((bundle) => {
+        const bundleObj = bundle.toObject();
+        const participants = bundleObj.participants || [];
+
+        // De-duplicate participants by customer id to avoid duplicate creator entries
+        const seen = new Set();
+        const uniqueParticipants = participants.filter((participant) => {
+          const customerId =
+            participant.customer?._id?.toString() ||
+            (typeof participant.customer === "string"
+              ? participant.customer
+              : null);
+
+          if (!customerId) return false;
+          if (seen.has(customerId)) return false;
+          seen.add(customerId);
+          return true;
+        });
+
+        if (!uniqueParticipants.length) {
+          return [bundleObj];
+        }
+
+        return uniqueParticipants.map((participant) => ({
+          // keep original bundle fields the same
+          ...bundleObj,
+          // override customer context to the active participant for this item
+          customer: participant.customer,
+          participant,
+          participantCustomer: participant.customer,
+          participantAddress: participant.address,
+          participantStatus: participant.status,
+          participantJoinedAt: participant.joinedAt,
+        }));
+      })
+      .flat();
+
     res.json({
       success: true,
       data: {
@@ -645,11 +692,11 @@ exports.getProviderRequests = async (req, res) => {
           },
         },
         bundles: {
-          items: bundles,
+          items: expandedBundles,
           pagination: {
             current: parseInt(page),
-            total: bundlesTotal,
-            pages: Math.ceil(bundlesTotal / parseInt(limit)),
+            total: totalParticipantItems,
+            pages: Math.ceil(totalParticipantItems / parseInt(limit)),
           },
         },
       },
