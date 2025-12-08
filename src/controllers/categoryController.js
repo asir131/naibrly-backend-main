@@ -1,7 +1,6 @@
 const Category = require("../models/Category");
 const CategoryType = require("../models/CategoryType");
 const Service = require("../models/Service");
-const { cloudinary } = require("cloudinary").v2;
 
 // Comprehensive initialization of default categories, types, and services
 const initializeDefaultData = async () => {
@@ -483,13 +482,15 @@ const createCategoryTypeWithServices = async (req, res) => {
       });
     }
 
-    // Prepare image data
+    // Prepare image data from Cloudinary upload
     const imageData = req.file
       ? {
-          url: req.file.path,
-          publicId: req.file.filename,
+          url: req.file.path || req.file.url || "",
+          publicId: req.file.filename || req.file.public_id || "",
         }
       : { url: "", publicId: "" };
+
+    console.log("📸 Image uploaded:", imageData);
 
     // Create category type
     const categoryType = new CategoryType({

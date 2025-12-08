@@ -1,10 +1,11 @@
+// Load environment variables FIRST before any other imports
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const path = require("path");
-const dotenv = require("dotenv");
 const http = require("http");
 const { initializeBanks } = require("./controllers/bankController");
 const connectDB = require("./config/database");
@@ -63,9 +64,12 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000", // For local development
+      "http://localhost:5173", // Vite frontend
       process.env.CLIENT_URL, // For production
     ],
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-admin-secret', 'Authorization'],
   })
 );
 
