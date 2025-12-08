@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist:*)",
+      "Bash(powershell -Command \"Get-Process | Where-Object {$_ProcessName -eq ''node''}\")",
+      "Bash(npm cache clean:*)",
+      "Bash(rm:*)",
+      "Bash(npm install)",
+      "Bash(npm audit fix:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm run dev:*)",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(node -c:*)",
+      "Bash(npm start)",
+      "Bash(timeout /t 2)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 3\")",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Stop-Process -Name node -Force\")",
+      "Bash(powershell -Command:*)",
+      "Bash(netstat:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
