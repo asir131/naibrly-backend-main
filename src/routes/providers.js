@@ -16,6 +16,9 @@ const {
   removeServiceArea,
   getProviderReviews,
   getMyReviews,
+  getMyAllReviews,
+  getServiceReviewById,
+  getBundleReviewsById,
   getProvidersByServiceArea,
   getTopProvidersByService,
   getProviderServiceDetailsWithReviews,
@@ -40,6 +43,24 @@ router.get(
   auth,
   authorize("provider"),
   getMyReviews
+);
+router.get(
+  "/reviews/my/all",
+  auth,
+  authorize("provider"),
+  getMyAllReviews
+);
+router.get(
+  "/reviews/my/service/:requestId",
+  auth,
+  authorize("provider"),
+  getServiceReviewById
+);
+router.get(
+  "/reviews/my/bundle/:bundleId",
+  auth,
+  authorize("provider"),
+  getBundleReviewsById
 );
 
 // Authenticated provider services (no providerId required)

@@ -3,6 +3,7 @@ const ProviderServiceFeedback = require("../models/ProviderServiceFeedback");
 const Customer = require("../models/Customer");
 const mongoose = require("mongoose");
 const ServiceRequest = require("../models/ServiceRequest");
+const Bundle = require("../models/Bundle");
 const PayoutInformation = require("../models/PayoutInformation");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 // Update provider's bundle capacity
@@ -420,6 +421,260 @@ exports.getMyReviews = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch provider reviews",
+      error: error.message,
+    });
+  }
+};
+
+// Authenticated provider: combined reviews from service requests and bundles
+exports.getMyAllReviews = async (req, res) => {
+  try {
+    const providerId = req.user?._id;
+    const { page = 1, limit = 10, type = "all" } = req.query;
+
+    if (!providerId || !mongoose.Types.ObjectId.isValid(providerId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid providerId is required",
+      });
+    }
+
+    const provider = await ServiceProvider.findById(providerId).select(
+      "businessNameRegistered businessLogo profileImage rating totalReviews"
+    );
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: "Provider not found",
+      });
+    }
+
+    // Service reviews (completed requests with review)
+    const serviceMatch = {
+      provider: providerId,
+      status: "completed",
+      "review.rating": { $exists: true },
+    };
+
+    const serviceReviews =
+      type === "bundle"
+        ? []
+        : await ServiceRequest.find(serviceMatch)
+            .select("review customer serviceType scheduledDate")
+            .populate("customer", "firstName lastName profileImage")
+            .sort({ "review.createdAt": -1 });
+
+    // Bundle reviews (provider assigned bundles with reviews)
+    const bundleMatch = {
+      provider: providerId,
+      "reviews.rating": { $exists: true },
+    };
+
+    const bundleDocs =
+      type === "service"
+        ? []
+        : await Bundle.find(bundleMatch)
+            .select("title reviews creator")
+            .populate("creator", "firstName lastName profileImage")
+            .sort({ "reviews.createdAt": -1 });
+
+    // Flatten bundle reviews
+    const bundleReviews = [];
+    for (const bundle of bundleDocs) {
+      (bundle.reviews || []).forEach((review) => {
+        bundleReviews.push({
+          _id: review._id,
+          type: "bundle",
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.createdAt,
+          bundleId: bundle._id,
+          bundleTitle: bundle.title,
+          customer: review.customer || bundle.creator || null,
+        });
+      });
+    }
+
+    // Normalize service reviews
+    const normalizedServiceReviews = serviceReviews.map((review) => ({
+      _id: review._id,
+      type: "service",
+      rating: review.review.rating,
+      comment: review.review.comment,
+      createdAt: review.review.createdAt,
+      serviceName: review.serviceType,
+      serviceDate: review.scheduledDate,
+      requestId: review._id,
+      customer: review.customer || null,
+    }));
+
+    // Combine and paginate
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const paginate = (arr) => {
+      const sorted = [...arr].sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
+      const start = (pageNum - 1) * limitNum;
+      return {
+        list: sorted.slice(start, start + limitNum),
+        total: sorted.length,
+        pages: Math.ceil(sorted.length / limitNum) || 1,
+      };
+    };
+
+    const servicePage = type === "bundle" ? { list: [], total: 0, pages: 1 } : paginate(normalizedServiceReviews);
+    const bundlePage = type === "service" ? { list: [], total: 0, pages: 1 } : paginate(bundleReviews);
+
+    res.json({
+      success: true,
+      data: {
+        provider: {
+          id: provider._id,
+          businessName: provider.businessNameRegistered,
+          businessLogo: provider.businessLogo,
+          profileImage: provider.profileImage,
+          rating: provider.rating,
+          totalReviews: provider.totalReviews,
+        },
+        counts: {
+          total: servicePage.total + bundlePage.total,
+          service: servicePage.total,
+          bundle: bundlePage.total,
+        },
+        reviews: {
+          service: servicePage.list,
+          bundle: bundlePage.list,
+        },
+        pagination: {
+          current: pageNum,
+          limit: limitNum,
+          service: {
+            pages: servicePage.pages,
+            total: servicePage.total,
+          },
+          bundle: {
+            pages: bundlePage.pages,
+            total: bundlePage.total,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get provider all reviews error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch reviews",
+      error: error.message,
+    });
+  }
+};
+
+// Provider: get review for a single service request (must belong to provider)
+exports.getServiceReviewById = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const providerId = req.user?._id;
+
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid requestId is required",
+      });
+    }
+
+    const serviceRequest = await ServiceRequest.findById(requestId)
+      .select("serviceType scheduledDate status review provider")
+      .populate("customer", "firstName lastName profileImage");
+
+    if (!serviceRequest) {
+      return res.status(404).json({
+        success: false,
+        message: "Service request not found",
+      });
+    }
+
+    if (!serviceRequest.provider || serviceRequest.provider.toString() !== providerId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view this review",
+      });
+    }
+
+    if (!serviceRequest.review || !serviceRequest.review.rating) {
+      return res.status(404).json({
+        success: false,
+        message: "No review submitted for this service request",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        requestId: serviceRequest._id,
+        serviceName: serviceRequest.serviceType,
+        status: serviceRequest.status,
+        review: serviceRequest.review,
+        customer: serviceRequest.customer || null,
+      },
+    });
+  } catch (error) {
+    console.error("Get service review error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch service review",
+      error: error.message,
+    });
+  }
+};
+
+// Provider: get reviews for a single bundle (must belong to provider)
+exports.getBundleReviewsById = async (req, res) => {
+  try {
+    const { bundleId } = req.params;
+    const providerId = req.user?._id;
+
+    if (!mongoose.Types.ObjectId.isValid(bundleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid bundleId is required",
+      });
+    }
+
+    const bundle = await Bundle.findById(bundleId)
+      .select("title status reviews provider")
+      .populate("reviews.customer", "firstName lastName profileImage");
+
+    if (!bundle) {
+      return res.status(404).json({
+        success: false,
+        message: "Bundle not found",
+      });
+    }
+
+    if (!bundle.provider || bundle.provider.toString() !== providerId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view reviews for this bundle",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        bundleId: bundle._id,
+        title: bundle.title,
+        status: bundle.status,
+        reviews: bundle.reviews || [],
+      },
+    });
+  } catch (error) {
+    console.error("Get bundle reviews error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bundle reviews",
       error: error.message,
     });
   }
