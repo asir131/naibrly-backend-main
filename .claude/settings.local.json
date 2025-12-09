@@ -19,7 +19,8 @@
       "Bash(powershell -Command \"Stop-Process -Name node -Force\")",
       "Bash(powershell -Command:*)",
       "Bash(netstat:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []
