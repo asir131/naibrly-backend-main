@@ -7,6 +7,7 @@ const {
   approveProvider,
   updateUserStatus,
   getAdminProfile,
+  getEarnings,
 } = require("../controllers/adminController");
 const { protect, adminAuth } = require("../middleware/adminAuth");
 const { verifyPayoutInformation } = require("../controllers/payoutController");
@@ -23,6 +24,7 @@ router.patch(
 
 // Protected admin routes
 router.get("/dashboard/stats", adminAuth, getDashboardStats);
+router.get("/dashboard/earnings", adminAuth, getEarnings);
 router.get("/customers", adminAuth, getAllCustomers);
 router.get("/providers", adminAuth, getAllProviders);
 router.patch("/providers/:providerId/approve", adminAuth, approveProvider);

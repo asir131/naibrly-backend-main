@@ -364,3 +364,103 @@ exports.getAdminProfile = async (req, res) => {
     });
   }
 };
+
+// Get earnings data
+exports.getEarnings = async (req, res) => {
+  try {
+    const { months = 6 } = req.query;
+    const monthsNumber = parseInt(months);
+
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsNumber);
+
+    // Import Booking model
+    const Booking = require("../models/Booking");
+
+    // Aggregate earnings by month
+    const earningsData = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate },
+          status: { $in: ["completed", "paid"] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          totalEarnings: { $sum: "$totalPrice" },
+          bookingCount: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+      {
+        $project: {
+          _id: 0,
+          month: {
+            $concat: [
+              { $toString: "$_id.year" },
+              "-",
+              {
+                $cond: [
+                  { $lt: ["$_id.month", 10] },
+                  { $concat: ["0", { $toString: "$_id.month" }] },
+                  { $toString: "$_id.month" },
+                ],
+              },
+            ],
+          },
+          totalEarnings: 1,
+          bookingCount: 1,
+        },
+      },
+    ]);
+
+    // Fill in missing months with zero earnings
+    const filledData = [];
+    for (let i = monthsNumber - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const monthKey = `${year}-${month}`;
+
+      const existingData = earningsData.find((d) => d.month === monthKey);
+      filledData.push({
+        month: monthKey,
+        totalEarnings: existingData ? existingData.totalEarnings : 0,
+        bookingCount: existingData ? existingData.bookingCount : 0,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        earnings: filledData,
+        summary: {
+          totalEarnings: filledData.reduce(
+            (sum, item) => sum + item.totalEarnings,
+            0
+          ),
+          totalBookings: filledData.reduce(
+            (sum, item) => sum + item.bookingCount,
+            0
+          ),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get earnings error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch earnings data",
+      error: error.message,
+    });
+  }
+};
