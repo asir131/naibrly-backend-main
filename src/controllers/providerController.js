@@ -1340,7 +1340,8 @@ exports.getMyPayoutInformation = async (req, res) => {
           routingNumber: payoutInfo.routingNumber,
           accountType: payoutInfo.accountType,
           lastFourDigits: payoutInfo.lastFourDigits,
-          accountNumber: payoutInfo.getMaskedAccountNumber(),
+          // Return full account number for provider-owned retrieval
+          accountNumber: payoutInfo.accountNumber,
           verificationStatus: payoutInfo.verificationStatus,
           isVerified: payoutInfo.isVerified,
           isActive: payoutInfo.isActive,
