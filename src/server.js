@@ -24,21 +24,78 @@ connectDB();
 
 // Ensure conversation indexes support per-participant bundle chats
 const ensureConversationIndexes = async () => {
-  try {
-    await Conversation.collection.dropIndex("bundleId_1");
-    console.log("Dropped legacy bundleId_1 index on conversations");
-  } catch (err) {
-    if (err.codeName !== "IndexNotFound" && err.code !== 27) {
-      console.error("Error dropping legacy bundleId_1 index:", err.message);
-    }
-  }
+  // Remove duplicate bundle/customer pairs so the unique index can be created
+  const dedupeBundleConversations = async () => {
+    try {
+      const duplicates = await Conversation.aggregate([
+        {
+          $match: {
+            bundleId: { $exists: true, $type: ["objectId", "string"] },
+            customerId: { $exists: true, $type: "objectId" },
+          },
+        },
+        { $sort: { createdAt: -1 } }, // newest first
+        {
+          $group: {
+            _id: { bundleId: "$bundleId", customerId: "$customerId" },
+            ids: { $push: "$_id" },
+            keep: { $first: "$_id" }, // keep newest
+            count: { $sum: 1 },
+          },
+        },
+        { $match: { count: { $gt: 1 } } },
+      ]);
 
+      for (const dup of duplicates) {
+        const toDelete = dup.ids
+          .map((id) => id.toString())
+          .filter((id) => id !== dup.keep.toString());
+        if (toDelete.length > 0) {
+          await Conversation.deleteMany({ _id: { $in: toDelete } });
+          console.log(
+            `Removed ${toDelete.length} duplicate conversation(s) for bundle ${dup._id.bundleId} / customer ${dup._id.customerId}`
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Error deduping conversations before indexing:", err.message);
+    }
+  };
+
+  const dropIndexIfExists = async (name) => {
+    try {
+      await Conversation.collection.dropIndex(name);
+      console.log(`Dropped legacy index on conversations: ${name}`);
+    } catch (err) {
+      if (err.codeName !== "IndexNotFound" && err.code !== 27) {
+        console.error(`Error dropping index ${name}:`, err.message);
+      }
+    }
+  };
+
+  // Remove older index definitions that treated nulls as valid values
+  await dropIndexIfExists("bundleId_1");
+  await dropIndexIfExists("bundleId_1_customerId_1");
+
+  // Clean up duplicates so the new unique index can be created
+  await dedupeBundleConversations();
+
+  // Only enforce uniqueness when both fields are present and non-null
   try {
     await Conversation.collection.createIndex(
       { bundleId: 1, customerId: 1 },
-      { unique: true, sparse: true }
+      {
+        name: "bundle_customer_unique_nonnull",
+        unique: true,
+        partialFilterExpression: {
+          bundleId: { $exists: true, $type: ["objectId", "string"] },
+          customerId: { $exists: true, $type: "objectId" },
+        },
+      }
     );
-    console.log("Ensured composite index on { bundleId, customerId } for conversations");
+    console.log(
+      "Ensured composite index on { bundleId, customerId } (non-null only) for conversations"
+    );
   } catch (err) {
     console.error("Error ensuring conversation composite index:", err.message);
   }
