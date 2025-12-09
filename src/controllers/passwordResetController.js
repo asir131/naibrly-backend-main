@@ -3,10 +3,7 @@ const Customer = require("../models/Customer");
 const ServiceProvider = require("../models/ServiceProvider");
 const Admin = require("../models/Admin");
 const OTP = require("../models/OTP");
-const {
-  sendOTPEmail,
-  sendPasswordResetSuccessEmail,
-} = require("../utils/emailService");
+const emailService = require("../utils/emailService");
 
 // Generate random OTP
 const generateOTP = (length = 5) => {
@@ -70,24 +67,18 @@ exports.sendResetOTP = async (req, res) => {
     await otp.save();
 
     // Send OTP email
-    const emailResult = await sendOTPEmail(
+    const emailResult = await emailService.sendOTPEmail(
       email,
       otpCode,
       `${user.firstName} ${user.lastName}`
     );
 
-    // Even if email fails, return success with OTP in response for development
+    // Fail fast if email sending fails
     if (!emailResult.success) {
-      console.log(`📧 OTP for ${email}: ${otpCode}`);
-      return res.json({
-        success: true,
-        message: "OTP generated successfully",
-        data: {
-          email: email,
-          otp: otpCode,
-          expiresIn: process.env.OTP_EXPIRY_MINUTES || 10,
-          warning: "Email service unavailable - OTP returned in response",
-        },
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP email",
+        error: emailResult.error || "Email service unavailable",
       });
     }
 
@@ -302,7 +293,7 @@ exports.resetPassword = async (req, res) => {
 
     // Send success email
     try {
-      await sendPasswordResetSuccessEmail(
+      await emailService.sendPasswordResetSuccessEmail(
         email,
         `${user.firstName} ${user.lastName}`
       );
@@ -379,24 +370,17 @@ exports.resendOTP = async (req, res) => {
 
     await otp.save();
 
-    const emailResult = await sendOTPEmail(
+    const emailResult = await emailService.sendOTPEmail(
       email,
       otpCode,
       `${user.firstName} ${user.lastName}`
     );
 
-    // Even if email fails, return OTP for development
     if (!emailResult.success) {
-      console.log(`📧 Resend OTP for ${email}: ${otpCode}`);
-      return res.json({
-        success: true,
-        message: "New OTP generated successfully",
-        data: {
-          email: email,
-          otp: otpCode,
-          expiresIn: process.env.OTP_EXPIRY_MINUTES || 10,
-          warning: "Email service unavailable - OTP returned in response",
-        },
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP email",
+        error: emailResult.error || "Email service unavailable",
       });
     }
 
@@ -417,3 +401,9 @@ exports.resendOTP = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
