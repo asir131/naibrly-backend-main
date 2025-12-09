@@ -69,7 +69,13 @@ app.use(
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'x-admin-secret', 'Authorization'],
+    allowedHeaders: [
+      'Content-Type',
+      'x-admin-secret',
+      'Authorization',
+      // Allow ngrok banner suppression header used by frontend
+      'ngrok-skip-browser-warning',
+    ],
   })
 );
 

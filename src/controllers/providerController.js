@@ -6,6 +6,7 @@ const ServiceRequest = require("../models/ServiceRequest");
 const Bundle = require("../models/Bundle");
 const PayoutInformation = require("../models/PayoutInformation");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
+const MoneyRequest = require("../models/MoneyRequest");
 // Update provider's bundle capacity
 exports.updateProviderCapacity = async (req, res) => {
   try {
@@ -1368,75 +1369,63 @@ exports.getMyAnalytics = async (req, res) => {
 
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const baseMatch = {
-      provider: providerId,
-      status: "completed",
-    };
-
-    const [todayOrders, monthOrders, todayEarningsAgg, monthEarningsAgg] =
-      await Promise.all([
-        ServiceRequest.countDocuments({
-          ...baseMatch,
-          completedAt: { $gte: startOfToday },
-        }),
-        ServiceRequest.countDocuments({
-          ...baseMatch,
-          completedAt: { $gte: startOfMonth },
-        }),
-        ServiceRequest.aggregate([
-          {
-            $match: {
-              ...baseMatch,
-              completedAt: { $gte: startOfToday },
+    // Helper to aggregate paid money requests (post-commission earnings)
+    const buildEarnings = async (fromDate) => {
+      const results = await MoneyRequest.aggregate([
+        {
+          $match: {
+            provider: new mongoose.Types.ObjectId(providerId),
+            status: "paid",
+          },
+        },
+        {
+          $addFields: {
+            paidAt: {
+              $ifNull: ["$paymentDetails.paidAt", "$updatedAt"],
+            },
+            providerEarnings: {
+              $ifNull: ["$commission.providerAmount", "$totalAmount"],
             },
           },
-          {
-            $group: {
-              _id: null,
-              earnings: {
-                $sum: {
-                  $ifNull: ["$commission.providerAmount", "$price"],
+        },
+        ...(fromDate
+          ? [
+              {
+                $match: {
+                  paidAt: { $gte: fromDate },
                 },
               },
-            },
+            ]
+          : []),
+        {
+          $group: {
+            _id: null,
+            orders: { $sum: 1 },
+            earnings: { $sum: "$providerEarnings" },
           },
-        ]),
-        ServiceRequest.aggregate([
-          {
-            $match: {
-              ...baseMatch,
-              completedAt: { $gte: startOfMonth },
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              earnings: {
-                $sum: {
-                  $ifNull: ["$commission.providerAmount", "$price"],
-                },
-              },
-            },
-          },
-        ]),
+        },
       ]);
 
-    const todayEarnings =
-      todayEarningsAgg.length > 0 ? todayEarningsAgg[0].earnings : 0;
-    const monthEarnings =
-      monthEarningsAgg.length > 0 ? monthEarningsAgg[0].earnings : 0;
+      if (results.length === 0) {
+        return { orders: 0, earnings: 0 };
+      }
+
+      return {
+        orders: results[0].orders,
+        earnings: results[0].earnings,
+      };
+    };
+
+    const [todayStats, monthStats] = await Promise.all([
+      buildEarnings(startOfToday),
+      buildEarnings(startOfMonth),
+    ]);
 
     res.json({
       success: true,
       data: {
-        today: {
-          orders: todayOrders,
-          earnings: todayEarnings,
-        },
-        month: {
-          orders: monthOrders,
-          earnings: monthEarnings,
-        },
+        today: todayStats,
+        month: monthStats,
       },
     });
   } catch (error) {
