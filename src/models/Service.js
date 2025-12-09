@@ -17,6 +17,16 @@ const serviceSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    image: {
+      url: {
+        type: String,
+        default: "",
+      },
+      publicId: {
+        type: String,
+        default: "",
+      },
+    },
     defaultHourlyRate: {
       type: Number,
       default: 50, // Default hourly rate for this service

@@ -659,6 +659,184 @@ const addServiceToCategoryType = async (req, res) => {
   }
 };
 
+// Update Category Type
+const updateCategoryType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+
+    const categoryType = await CategoryType.findById(id);
+
+    if (!categoryType) {
+      return res.status(404).json({
+        success: false,
+        message: "Category type not found",
+      });
+    }
+
+    // Update fields
+    if (name) categoryType.name = name.trim();
+    if (description) categoryType.description = description;
+
+    // Handle image update if provided
+    if (req.file) {
+      // Delete old image from Cloudinary if exists
+      if (categoryType.image?.publicId) {
+        const { cloudinary } = require("../config/cloudinary");
+        await cloudinary.uploader.destroy(categoryType.image.publicId);
+      }
+
+      categoryType.image = {
+        url: req.file.path,
+        publicId: req.file.filename,
+      };
+    }
+
+    await categoryType.save();
+
+    res.json({
+      success: true,
+      message: "Category type updated successfully",
+      data: { categoryType },
+    });
+  } catch (error) {
+    console.error("Update category type error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update category type",
+      error: error.message,
+    });
+  }
+};
+
+// Delete Category Type
+const deleteCategoryType = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const categoryType = await CategoryType.findById(id);
+
+    if (!categoryType) {
+      return res.status(404).json({
+        success: false,
+        message: "Category type not found",
+      });
+    }
+
+    // Delete associated services
+    await Service.deleteMany({ categoryType: id });
+
+    // Delete image from Cloudinary if exists
+    if (categoryType.image?.publicId) {
+      const { cloudinary } = require("../config/cloudinary");
+      await cloudinary.uploader.destroy(categoryType.image.publicId);
+    }
+
+    // Delete category type
+    await CategoryType.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: "Category type and associated services deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete category type error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete category type",
+      error: error.message,
+    });
+  }
+};
+
+// Update Service
+const updateService = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, defaultHourlyRate } = req.body;
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    // Update fields
+    if (name) service.name = name.trim();
+    if (description) service.description = description;
+    if (defaultHourlyRate) service.defaultHourlyRate = defaultHourlyRate;
+
+    // Handle image update if provided
+    if (req.file) {
+      // Delete old image from Cloudinary if exists
+      if (service.image?.publicId) {
+        const { cloudinary } = require("../config/cloudinary");
+        await cloudinary.uploader.destroy(service.image.publicId);
+      }
+
+      service.image = {
+        url: req.file.path,
+        publicId: req.file.filename,
+      };
+    }
+
+    await service.save();
+
+    res.json({
+      success: true,
+      message: "Service updated successfully",
+      data: { service },
+    });
+  } catch (error) {
+    console.error("Update service error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update service",
+      error: error.message,
+    });
+  }
+};
+
+// Delete Service
+const deleteService = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    // Delete image from Cloudinary if exists
+    if (service.image?.publicId) {
+      const { cloudinary } = require("../config/cloudinary");
+      await cloudinary.uploader.destroy(service.image.publicId);
+    }
+
+    // Delete service
+    await Service.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: "Service deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete service error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete service",
+      error: error.message,
+    });
+  }
+};
+
 // Export all functions properly
 module.exports = {
   initializeDefaultData,
@@ -670,4 +848,8 @@ module.exports = {
   getInitializationStatus,
   createCategoryTypeWithServices,
   addServiceToCategoryType,
+  updateCategoryType,
+  deleteCategoryType,
+  updateService,
+  deleteService,
 };

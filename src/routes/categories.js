@@ -7,32 +7,54 @@ const {
   searchCategories,
   initializeDefaultData,
   addServiceToCategoryType,
+  updateCategoryType,
+  deleteCategoryType,
+  updateService,
+  deleteService,
 } = require("../controllers/categoryController");
 const { uploadCategoryTypeImage } = require("../config/categoryCloudinary");
 const { auth, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Initialize categories on server start
-
 // Public routes
 router.get("/services", getAllServices);
 router.get("/services/search", searchServices);
 router.get("/search", searchCategories);
 
-// Admin routes
+// Admin routes - Category Management
 router.get("/", auth, authorize("admin"), getAllCategories);
 
-// Add new service to existing category type
-router.post("/add-service", auth, authorize("admin"), addServiceToCategoryType);
-
-// SIMPLE AND CLEAN - This will work
+// Category Type CRUD
 router.post(
   "/create",
   auth,
   authorize("admin"),
-  uploadCategoryTypeImage.single("image"), // Field name is 'image'
+  uploadCategoryTypeImage.single("image"),
   createCategoryTypeWithServices
 );
+
+router.put(
+  "/type/:id",
+  auth,
+  authorize("admin"),
+  uploadCategoryTypeImage.single("image"),
+  updateCategoryType
+);
+
+router.delete("/type/:id", auth, authorize("admin"), deleteCategoryType);
+
+// Service CRUD
+router.post("/add-service", auth, authorize("admin"), addServiceToCategoryType);
+
+router.put(
+  "/service/:id",
+  auth,
+  authorize("admin"),
+  uploadCategoryTypeImage.single("image"),
+  updateService
+);
+
+router.delete("/service/:id", auth, authorize("admin"), deleteService);
 
 module.exports = router;

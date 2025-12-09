@@ -362,11 +362,19 @@ const cancelMoneyRequest = async (req, res) => {
 // Get money requests for provider
 const getProviderMoneyRequests = async (req, res) => {
   try {
-    const { status, page = 1, limit = 10 } = req.query;
+    const {
+      status,
+      page = 1,
+      limit = 10,
+      serviceRequestId,
+      bundleId,
+    } = req.query;
     const providerId = req.user._id;
 
     const filter = { provider: providerId };
     if (status) filter.status = status;
+    if (serviceRequestId) filter.serviceRequest = serviceRequestId;
+    if (bundleId) filter.bundle = bundleId;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
