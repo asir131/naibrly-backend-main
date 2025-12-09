@@ -5,6 +5,8 @@ const Admin = require("../models/Admin");
 const PayoutInformation = require("../models/PayoutInformation");
 const Verification = require("../models/Verification");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
+const MoneyRequest = require("../models/MoneyRequest");
+const ServiceRequest = require("../models/ServiceRequest");
 const { cloudinary } = require("../config/cloudinary");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
@@ -834,9 +836,13 @@ const logout = async (req, res) => {
 const deleteAccount = async (req, res) => {
   try {
     const role = req.user.role;
+    const userId = req.user._id;
 
     if (role === "customer") {
-      await Customer.findByIdAndDelete(req.user._id);
+      await Promise.all([
+        Customer.deleteOne({ _id: userId }),
+        MoneyRequest.deleteMany({ customer: userId }),
+      ]);
       return res.json({
         success: true,
         message: "Customer account deleted successfully",
@@ -844,7 +850,14 @@ const deleteAccount = async (req, res) => {
     }
 
     if (role === "provider") {
-      await ServiceProvider.findByIdAndDelete(req.user._id);
+      await Promise.all([
+        ServiceProvider.deleteOne({ _id: userId }),
+        PayoutInformation.deleteMany({ provider: userId }),
+        Verification.deleteMany({ provider: userId }),
+        WithdrawalRequest.deleteMany({ provider: userId }),
+        MoneyRequest.deleteMany({ provider: userId }),
+        ServiceRequest.deleteMany({ provider: userId }),
+      ]);
       return res.json({
         success: true,
         message: "Provider account deleted successfully",

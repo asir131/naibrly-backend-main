@@ -8,6 +8,7 @@ const {
   getCustomerMoneyRequests,
   getProviderPaymentHistory,
   getCustomerPaymentHistory,
+  getProviderFinanceHistory,
   getAdminTransactions,
   getMoneyRequest,
   acceptMoneyRequest,
@@ -35,6 +36,12 @@ router.get(
   auth,
   authorize("provider"),
   getProviderPaymentHistory
+);
+router.get(
+  "/provider/finance-history",
+  auth,
+  authorize("provider"),
+  getProviderFinanceHistory
 );
 
 // Customer routes

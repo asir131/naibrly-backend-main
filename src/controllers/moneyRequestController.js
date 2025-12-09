@@ -8,6 +8,7 @@ const {
   calculateServiceCommission,
   calculateBundleCommission,
 } = require("./commissionController");
+const WithdrawalRequest = require("../models/WithdrawalRequest");
 
 const createMoneyRequest = async (req, res) => {
   try {
@@ -662,7 +663,7 @@ const getProviderPaymentHistory = async (req, res) => {
 
     const filter = { provider: providerId, status: "paid" };
 
-    const [moneyRequests, total] = await Promise.all([
+    const [moneyRequests, totalPaidMoneyRequests, withdrawals] = await Promise.all([
       MoneyRequest.find(filter)
         .populate("customer", "firstName lastName email phone profileImage")
         .populate("serviceRequest", "serviceType scheduledDate")
@@ -671,16 +672,43 @@ const getProviderPaymentHistory = async (req, res) => {
         .skip(skip)
         .limit(parseInt(limit)),
       MoneyRequest.countDocuments(filter),
+      WithdrawalRequest.find({ provider: providerId })
+        .populate("processedBy", "firstName lastName email")
+        .sort({ createdAt: -1 })
+        .lean(),
     ]);
+
+    const formattedWithdrawals = withdrawals.map((w) => ({
+      _id: w._id,
+      type: "withdrawal",
+      amount: w.amount,
+      status: w.status,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt,
+      processedAt: w.processedAt,
+      payoutReference: w.payoutReference,
+      notes: w.notes,
+      processedBy: w.processedBy,
+    }));
+
+    const formattedPayments = moneyRequests.map((mr) => ({
+      ...mr.toObject(),
+      type: "payment",
+    }));
+
+    // Combine payments and withdrawals for unified history
+    const combined = [...formattedPayments, ...formattedWithdrawals].sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+    );
 
     res.json({
       success: true,
       data: {
-        payments: moneyRequests,
+        payments: combined,
         pagination: {
           current: parseInt(page),
-          total,
-          pages: Math.ceil(total / parseInt(limit)),
+          total: totalPaidMoneyRequests + withdrawals.length,
+          pages: Math.ceil((totalPaidMoneyRequests + withdrawals.length) / parseInt(limit)),
         },
       },
     });
@@ -730,6 +758,66 @@ const getCustomerPaymentHistory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch payment history",
+      error: error.message,
+    });
+  }
+};
+
+// Combined finance history for provider: money requests (all statuses) + withdrawals
+const getProviderFinanceHistory = async (req, res) => {
+  try {
+    const providerId = req.user._id;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const moneyFilter = { provider: providerId };
+
+    const [moneyRequests, totalMoney, withdrawals, totalWithdrawals] =
+      await Promise.all([
+        MoneyRequest.find(moneyFilter)
+          .populate("customer", "firstName lastName email phone profileImage")
+          .populate("serviceRequest", "serviceType scheduledDate")
+          .populate("bundle", "title category finalPrice")
+          .sort({ updatedAt: -1, createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit)),
+        MoneyRequest.countDocuments(moneyFilter),
+        WithdrawalRequest.find({ provider: providerId })
+          .populate("processedBy", "firstName lastName email")
+          .sort({ updatedAt: -1, createdAt: -1 })
+          .lean(),
+        WithdrawalRequest.countDocuments({ provider: providerId }),
+      ]);
+
+    const combined = [
+      ...moneyRequests.map((mr) => ({
+        ...mr.toObject(),
+        type: "money_request",
+      })),
+      ...withdrawals.map((w) => ({
+        ...w,
+        type: "withdrawal",
+      })),
+    ].sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+    );
+
+    res.json({
+      success: true,
+      data: {
+        history: combined,
+        pagination: {
+          current: parseInt(page),
+          total: totalMoney + totalWithdrawals,
+          pages: Math.ceil((totalMoney + totalWithdrawals) / parseInt(limit)),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get provider finance history error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch finance history",
       error: error.message,
     });
   }
@@ -1481,6 +1569,7 @@ module.exports = {
   setAmountAndPay,
   getProviderPaymentHistory,
   getCustomerPaymentHistory,
+  getProviderFinanceHistory,
   getAdminTransactions,
   getMoneyRequest,
   acceptMoneyRequest,

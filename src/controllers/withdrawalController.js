@@ -104,9 +104,46 @@ exports.getAllWithdrawals = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // Fetch payout info for all providers in one query and merge it into the response
+    const providerIds = withdrawals
+      .map((w) => w.provider?._id?.toString())
+      .filter(Boolean);
+
+    const payoutInfos = await PayoutInformation.find({
+      provider: { $in: providerIds },
+    })
+      .select(
+        "provider bankName bankCode accountType accountHolderName accountNumber routingNumber lastFourDigits isVerified verificationStatus isActive createdAt updatedAt"
+      )
+      .lean();
+
+    const payoutInfoByProvider = payoutInfos.reduce((acc, info) => {
+      acc[info.provider.toString()] = {
+        bankName: info.bankName,
+        bankCode: info.bankCode,
+        accountType: info.accountType,
+        accountHolderName: info.accountHolderName,
+        accountNumber: info.accountNumber,
+        routingNumber: info.routingNumber,
+        lastFourDigits: info.lastFourDigits,
+        isVerified: info.isVerified,
+        verificationStatus: info.verificationStatus,
+        isActive: info.isActive,
+        createdAt: info.createdAt,
+        updatedAt: info.updatedAt,
+      };
+      return acc;
+    }, {});
+
+    const withdrawalsWithPayoutInfo = withdrawals.map((w) => ({
+      ...w,
+      payoutInformation:
+        payoutInfoByProvider[w.provider?._id?.toString() || ""] || null,
+    }));
+
     res.json({
       success: true,
-      data: { withdrawals, total: withdrawals.length },
+      data: { withdrawals: withdrawalsWithPayoutInfo, total: withdrawals.length },
     });
   } catch (error) {
     console.error("Get all withdrawals error:", error);
