@@ -213,6 +213,9 @@ app.use("/api/conversations", require("./routes/conversation"));
 // Search routes
 app.use("/api/search", require("./routes/search"));
 
+// Support ticket routes
+app.use("/api/support", require("./routes/support"));
+
 // ========== DEBUG & TEST ROUTES ========== //
 
 // Debug route for testing uploads
@@ -255,6 +258,7 @@ app.get("/", (req, res) => {
       commission: "/api/commission",
       conversations: "/api/conversations",
       search: "/api/search",
+      support: "/api/support",
     },
     health: "/health",
     test: "/api/test",
