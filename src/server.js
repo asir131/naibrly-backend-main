@@ -123,6 +123,7 @@ app.use(
       "http://localhost:3000", // For local development
       "http://localhost:5173", // Vite frontend
       process.env.CLIENT_URL, // For production
+      process.env.FRONTEND_URL, // Admin dashboard
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
