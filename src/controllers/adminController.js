@@ -5,6 +5,8 @@ const ServiceRequest = require("../models/ServiceRequest");
 const Bundle = require("../models/Bundle");
 const MoneyRequest = require("../models/MoneyRequest");
 const Verification = require("../models/Verification");
+const SupportTicket = require("../models/SupportTicket");
+const WithdrawalRequest = require("../models/WithdrawalRequest");
 const jwt = require("jsonwebtoken");
 
 // Generate JWT Token
@@ -136,14 +138,35 @@ exports.adminLogin = async (req, res) => {
 // Get dashboard statistics
 exports.getDashboardStats = async (req, res) => {
   try {
-    const totalCustomers = await Customer.countDocuments();
-    const totalProviders = await ServiceProvider.countDocuments();
+    const { startDate, endDate } = req.query;
+
+    // Build date filter for queries
+    let dateFilter = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0); // Start of day
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // End of day
+
+      dateFilter = {
+        createdAt: { $gte: start, $lte: end },
+      };
+    }
+
+    // Count customers (with date filter if provided)
+    const totalCustomers = await Customer.countDocuments(dateFilter);
+    const totalProviders = await ServiceProvider.countDocuments(dateFilter);
+
     const pendingApprovals = await ServiceProvider.countDocuments({
       isApproved: false,
+      ...dateFilter,
     });
+
     const activeProviders = await ServiceProvider.countDocuments({
       isApproved: true,
       isActive: true,
+      ...dateFilter,
     });
 
     // Recent registrations (last 7 days)
@@ -159,9 +182,22 @@ exports.getDashboardStats = async (req, res) => {
     });
 
     // Calculate revenue from PAID money requests (actual Stripe payments)
-    const paidMoneyRequests = await MoneyRequest.find({
-      status: "paid",
-    }).select("totalAmount commission");
+    // Apply date filter to payment date if date range is provided
+    let revenueFilter = { status: "paid" };
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      revenueFilter["paymentDetails.paidAt"] = { $gte: start, $lte: end };
+    }
+
+    const paidMoneyRequests = await MoneyRequest.find(revenueFilter).select(
+      "totalAmount commission"
+    );
 
     let totalRevenue = 0; // Total amount customers paid through Stripe
     let totalCommissionEarned = 0; // Admin's commission income
@@ -180,20 +216,43 @@ exports.getDashboardStats = async (req, res) => {
     // Total users = Customers + Providers
     const totalUsers = totalCustomers + totalProviders;
 
+    // Pending Actions - counts for admin dashboard
+    const pendingVerifications = await Verification.countDocuments({
+      status: "pending",
+    });
+
+    const newSupportTickets = await SupportTicket.countDocuments({
+      status: "Unsolved",
+    });
+
+    const pendingWithdrawals = await WithdrawalRequest.countDocuments({
+      status: "pending",
+    });
+
     res.json({
       success: true,
       data: {
+        dateRange: {
+          startDate: startDate || null,
+          endDate: endDate || null,
+          isFiltered: !!(startDate && endDate),
+        },
         stats: {
           totalUsers,
           totalCustomers,
           totalProviders,
           totalRevenue, // Total amount paid by customers via Stripe
-          totalCommissionEarned, // Admin's income from commission
+          totalCommissionEarned, // Admin's commission income (My Balance)
           totalProviderEarnings, // Total paid to providers
           pendingApprovals,
           activeProviders,
           recentCustomers,
           recentProviders,
+        },
+        pendingActions: {
+          pendingVerifications, // Providers awaiting verification
+          newSupportTickets, // New/unsolved support tickets
+          pendingWithdrawals, // Pending withdrawal requests
         },
       },
     });
@@ -398,6 +457,112 @@ exports.getAdminProfile = async (req, res) => {
   }
 };
 
+// Update admin profile
+exports.updateAdminProfile = async (req, res) => {
+  try {
+    const { firstName, lastName, email, phone, profileImage } = req.body;
+
+    const admin = await Admin.findById(req.user._id);
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Check if email is being changed and if it's already taken by another admin
+    if (email && email !== admin.email) {
+      const existingAdmin = await Admin.findOne({ email });
+      if (existingAdmin) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is already in use",
+        });
+      }
+    }
+
+    // Update fields
+    if (firstName) admin.firstName = firstName;
+    if (lastName) admin.lastName = lastName;
+    if (email) admin.email = email;
+    if (phone) admin.phone = phone;
+    if (profileImage) admin.profileImage = profileImage;
+
+    await admin.save();
+
+    const updatedAdmin = await Admin.findById(req.user._id).select("-password");
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: { admin: updatedAdmin },
+    });
+  } catch (error) {
+    console.error("Update admin profile error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update admin profile",
+      error: error.message,
+    });
+  }
+};
+
+// Change admin password
+exports.changeAdminPassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long",
+      });
+    }
+
+    const admin = await Admin.findById(req.user._id);
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Verify current password
+    const isMatch = await admin.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Update password
+    admin.password = newPassword;
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("Change admin password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to change password",
+      error: error.message,
+    });
+  }
+};
+
 // Get earnings summary for chart (monthly breakdown)
 exports.getEarningsSummary = async (req, res) => {
   try {
@@ -413,7 +578,7 @@ exports.getEarningsSummary = async (req, res) => {
     const paidMoneyRequests = await MoneyRequest.find({
       status: "paid",
       "paymentDetails.paidAt": { $gte: startDate, $lte: endDate },
-    }).select("totalAmount commission paymentDetails.paidAt");
+    }).select("totalAmount commission paymentDetails.paidAt serviceRequest bundle");
 
     // Initialize earnings data structure
     const earningsByMonth = {};
@@ -430,6 +595,8 @@ exports.getEarningsSummary = async (req, res) => {
         year: date.getFullYear(),
         totalRevenue: 0, // Total amount customers paid via Stripe
         commission: 0, // Admin's commission income
+        serviceRevenue: 0, // Revenue from service requests
+        bundleRevenue: 0, // Revenue from bundles
         providerEarnings: 0, // Amount paid to providers
         transactionCount: 0, // Number of payments
       };
@@ -450,6 +617,13 @@ exports.getEarningsSummary = async (req, res) => {
           earningsByMonth[monthKey].commission += commissionAmount;
           earningsByMonth[monthKey].providerEarnings += providerAmount;
           earningsByMonth[monthKey].transactionCount += 1;
+
+          // Separate revenue by type (service vs bundle)
+          if (request.serviceRequest) {
+            earningsByMonth[monthKey].serviceRevenue += paidAmount;
+          } else if (request.bundle) {
+            earningsByMonth[monthKey].bundleRevenue += paidAmount;
+          }
         }
       }
     });
@@ -467,6 +641,8 @@ exports.getEarningsSummary = async (req, res) => {
         summary: {
           totalRevenue: earningsData.reduce((sum, month) => sum + month.totalRevenue, 0),
           totalCommission: earningsData.reduce((sum, month) => sum + month.commission, 0),
+          totalServiceRevenue: earningsData.reduce((sum, month) => sum + month.serviceRevenue, 0),
+          totalBundleRevenue: earningsData.reduce((sum, month) => sum + month.bundleRevenue, 0),
           totalProviderEarnings: earningsData.reduce((sum, month) => sum + month.providerEarnings, 0),
           totalTransactions: earningsData.reduce((sum, month) => sum + month.transactionCount, 0),
         },
@@ -1203,6 +1379,192 @@ exports.rejectProviderVerification = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to reject provider verification",
+      error: error.message,
+    });
+  }
+};
+
+// Get admin notifications (unified endpoint)
+exports.getAdminNotifications = async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+    const limitNum = parseInt(limit);
+
+    // 1. Get pending provider verifications
+    const pendingVerifications = await Verification.find({ status: "pending" })
+      .populate("provider", "firstName lastName email businessNameRegistered")
+      .sort({ createdAt: -1 })
+      .limit(limitNum);
+
+    // 2. Get new/unsolved support tickets
+    const newSupportTickets = await SupportTicket.find({ status: "Unsolved" })
+      .populate("user", "firstName lastName email")
+      .sort({ createdAt: -1 })
+      .limit(limitNum);
+
+    // 3. Get pending withdrawal requests
+    const pendingWithdrawals = await WithdrawalRequest.find({
+      status: "pending",
+    })
+      .populate("provider", "firstName lastName email businessNameRegistered")
+      .sort({ createdAt: -1 })
+      .limit(limitNum);
+
+    // 4. Get recent payments (last 24 hours by default, or recent paid ones)
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+
+    const recentPayments = await MoneyRequest.find({
+      status: "paid",
+      "paymentDetails.paidAt": { $gte: oneDayAgo },
+    })
+      .populate("customer", "firstName lastName email")
+      .populate("provider", "firstName lastName email businessNameRegistered")
+      .populate("serviceRequest", "serviceType")
+      .populate("bundle", "title")
+      .sort({ "paymentDetails.paidAt": -1 })
+      .limit(limitNum);
+
+    // Build unified notification array
+    const notifications = [];
+
+    // Add verification notifications
+    pendingVerifications.forEach((verification) => {
+      notifications.push({
+        id: verification._id,
+        type: "provider_verification",
+        title: "New Provider Verification Request",
+        message: `${verification.provider?.firstName || ""} ${
+          verification.provider?.lastName || ""
+        } (${
+          verification.provider?.businessNameRegistered || "N/A"
+        }) submitted verification documents`,
+        data: {
+          verificationId: verification._id,
+          providerId: verification.provider?._id,
+          providerName: `${verification.provider?.firstName || ""} ${
+            verification.provider?.lastName || ""
+          }`,
+          businessName: verification.provider?.businessNameRegistered,
+          status: verification.status,
+        },
+        createdAt: verification.createdAt,
+        isRead: false,
+        priority: "high",
+      });
+    });
+
+    // Add support ticket notifications
+    newSupportTickets.forEach((ticket) => {
+      notifications.push({
+        id: ticket._id,
+        type: "support_ticket",
+        title: "New Support Ticket",
+        message: `Ticket #${ticket.ticketId}: ${ticket.subject}`,
+        data: {
+          ticketId: ticket._id,
+          ticketNumber: ticket.ticketId,
+          subject: ticket.subject,
+          priority: ticket.priority,
+          userId: ticket.user?._id,
+          userName: `${ticket.user?.firstName || ""} ${
+            ticket.user?.lastName || ""
+          }`,
+          userEmail: ticket.user?.email,
+        },
+        createdAt: ticket.createdAt,
+        isRead: false,
+        priority: ticket.priority === "High" ? "high" : "medium",
+      });
+    });
+
+    // Add withdrawal notifications
+    pendingWithdrawals.forEach((withdrawal) => {
+      notifications.push({
+        id: withdrawal._id,
+        type: "withdrawal_request",
+        title: "New Withdrawal Request",
+        message: `${withdrawal.provider?.firstName || ""} ${
+          withdrawal.provider?.lastName || ""
+        } requested withdrawal of $${withdrawal.amount.toFixed(2)}`,
+        data: {
+          withdrawalId: withdrawal._id,
+          amount: withdrawal.amount,
+          providerId: withdrawal.provider?._id,
+          providerName: `${withdrawal.provider?.firstName || ""} ${
+            withdrawal.provider?.lastName || ""
+          }`,
+          businessName: withdrawal.provider?.businessNameRegistered,
+          payoutMethod: withdrawal.payoutMethod,
+        },
+        createdAt: withdrawal.createdAt,
+        isRead: false,
+        priority: "medium",
+      });
+    });
+
+    // Add payment notifications
+    recentPayments.forEach((payment) => {
+      notifications.push({
+        id: payment._id,
+        type: "new_payment",
+        title: "New Payment Received",
+        message: `Payment of $${payment.totalAmount.toFixed(2)} from ${
+          payment.customer?.firstName || ""
+        } ${payment.customer?.lastName || ""} to ${
+          payment.provider?.firstName || ""
+        } ${payment.provider?.lastName || ""}`,
+        data: {
+          paymentId: payment._id,
+          amount: payment.totalAmount,
+          commission: payment.commission?.amount || 0,
+          customerId: payment.customer?._id,
+          customerName: `${payment.customer?.firstName || ""} ${
+            payment.customer?.lastName || ""
+          }`,
+          providerId: payment.provider?._id,
+          providerName: `${payment.provider?.firstName || ""} ${
+            payment.provider?.lastName || ""
+          }`,
+          serviceType: payment.serviceRequest?.serviceType || payment.bundle?.title,
+        },
+        createdAt: payment.paymentDetails?.paidAt || payment.createdAt,
+        isRead: false,
+        priority: "low",
+      });
+    });
+
+    // Sort all notifications by creation date (most recent first)
+    notifications.sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    // Calculate summary counts
+    const summary = {
+      totalNotifications: notifications.length,
+      pendingVerifications: pendingVerifications.length,
+      newSupportTickets: newSupportTickets.length,
+      pendingWithdrawals: pendingWithdrawals.length,
+      recentPayments: recentPayments.length,
+      byPriority: {
+        high: notifications.filter((n) => n.priority === "high").length,
+        medium: notifications.filter((n) => n.priority === "medium").length,
+        low: notifications.filter((n) => n.priority === "low").length,
+      },
+    };
+
+    res.json({
+      success: true,
+      data: {
+        notifications: notifications.slice(0, limitNum),
+        summary,
+      },
+    });
+  } catch (error) {
+    console.error("Get admin notifications error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch admin notifications",
       error: error.message,
     });
   }
