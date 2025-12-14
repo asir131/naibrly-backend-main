@@ -1,5 +1,6 @@
 const Customer = require("../models/Customer");
 const ServiceProvider = require("../models/ServiceProvider");
+const Admin = require("../models/Admin");
 const { deleteImageFromCloudinary } = require("../config/cloudinary");
 
 exports.uploadCustomerProfileImage = async (req, res) => {
@@ -209,6 +210,86 @@ exports.deleteBusinessLogo = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete business logo",
+      error: error.message,
+    });
+  }
+};
+
+exports.uploadAdminProfileImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      });
+    }
+
+    const admin = await Admin.findById(req.user._id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    if (admin.profileImage.publicId) {
+      await deleteImageFromCloudinary(admin.profileImage.publicId);
+    }
+
+    admin.profileImage = {
+      url: req.file.path,
+      publicId: req.file.filename,
+    };
+
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: "Admin profile image uploaded successfully",
+      data: {
+        profileImage: admin.profileImage,
+      },
+    });
+  } catch (error) {
+    console.error("Upload admin profile image error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload admin profile image",
+      error: error.message,
+    });
+  }
+};
+
+exports.deleteAdminProfileImage = async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.user._id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    if (admin.profileImage.publicId) {
+      await deleteImageFromCloudinary(admin.profileImage.publicId);
+    }
+
+    admin.profileImage = {
+      url: "",
+      publicId: "",
+    };
+
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: "Admin profile image deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete admin profile image error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete admin profile image",
       error: error.message,
     });
   }

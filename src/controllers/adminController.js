@@ -8,6 +8,7 @@ const Verification = require("../models/Verification");
 const SupportTicket = require("../models/SupportTicket");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const jwt = require("jsonwebtoken");
+const { deleteImageFromCloudinary } = require("../config/cloudinary");
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -135,6 +136,14 @@ exports.adminLogin = async (req, res) => {
   }
 };
 
+// Helper function to calculate growth percentage
+const calculateGrowth = (currentValue, previousValue) => {
+  if (previousValue === 0) {
+    return currentValue > 0 ? 100 : 0;
+  }
+  return ((currentValue - previousValue) / previousValue) * 100;
+};
+
 // Get dashboard statistics
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -142,7 +151,12 @@ exports.getDashboardStats = async (req, res) => {
 
     // Build date filter for queries
     let dateFilter = {};
+    let currentPeriodStart, currentPeriodEnd;
+    let previousPeriodStart, previousPeriodEnd;
+    let growthPeriodLabel = "last30Days";
+
     if (startDate && endDate) {
+      // Custom date range provided
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0); // Start of day
 
@@ -152,11 +166,69 @@ exports.getDashboardStats = async (req, res) => {
       dateFilter = {
         createdAt: { $gte: start, $lte: end },
       };
+
+      // For growth comparison with custom dates:
+      // Current period = selected date range
+      // Previous period = same duration before the start date
+      currentPeriodStart = new Date(start);
+      currentPeriodEnd = new Date(end);
+
+      // Calculate the duration in milliseconds
+      const duration = end - start;
+
+      // Previous period ends just before current period starts
+      previousPeriodEnd = new Date(start);
+      previousPeriodEnd.setMilliseconds(-1); // Just before start
+
+      // Previous period starts duration milliseconds before
+      previousPeriodStart = new Date(previousPeriodEnd - duration);
+      previousPeriodStart.setHours(0, 0, 0, 0);
+
+      // Calculate number of days for label
+      const days = Math.ceil(duration / (1000 * 60 * 60 * 24));
+      growthPeriodLabel = `selected${days}Days`;
+    } else {
+      // No custom date range - use default last 30 days
+      const now = new Date();
+      currentPeriodEnd = new Date(now);
+      currentPeriodStart = new Date(now);
+      currentPeriodStart.setDate(currentPeriodStart.getDate() - 30);
+      currentPeriodStart.setHours(0, 0, 0, 0);
+
+      previousPeriodEnd = new Date(currentPeriodStart);
+      previousPeriodEnd.setMilliseconds(-1);
+      previousPeriodStart = new Date(previousPeriodEnd);
+      previousPeriodStart.setDate(previousPeriodStart.getDate() - 30);
+      previousPeriodStart.setHours(0, 0, 0, 0);
+
+      growthPeriodLabel = "last30Days";
     }
 
     // Count customers (with date filter if provided)
     const totalCustomers = await Customer.countDocuments(dateFilter);
     const totalProviders = await ServiceProvider.countDocuments(dateFilter);
+
+    // Growth calculation: Customers (current period vs previous period)
+    const customersCurrentPeriod = await Customer.countDocuments({
+      createdAt: { $gte: currentPeriodStart, $lte: currentPeriodEnd },
+    });
+
+    const customersPreviousPeriod = await Customer.countDocuments({
+      createdAt: { $gte: previousPeriodStart, $lte: previousPeriodEnd },
+    });
+
+    const customersGrowth = calculateGrowth(customersCurrentPeriod, customersPreviousPeriod);
+
+    // Growth calculation: Providers (current period vs previous period)
+    const providersCurrentPeriod = await ServiceProvider.countDocuments({
+      createdAt: { $gte: currentPeriodStart, $lte: currentPeriodEnd },
+    });
+
+    const providersPreviousPeriod = await ServiceProvider.countDocuments({
+      createdAt: { $gte: previousPeriodStart, $lte: previousPeriodEnd },
+    });
+
+    const providersGrowth = calculateGrowth(providersCurrentPeriod, providersPreviousPeriod);
 
     const pendingApprovals = await ServiceProvider.countDocuments({
       isApproved: false,
@@ -196,7 +268,7 @@ exports.getDashboardStats = async (req, res) => {
     }
 
     const paidMoneyRequests = await MoneyRequest.find(revenueFilter).select(
-      "totalAmount commission"
+      "totalAmount commission paymentDetails.paidAt"
     );
 
     let totalRevenue = 0; // Total amount customers paid through Stripe
@@ -212,6 +284,34 @@ exports.getDashboardStats = async (req, res) => {
       totalCommissionEarned += commissionAmount;
       totalProviderEarnings += providerAmount;
     });
+
+    // Growth calculation: Revenue (current period vs previous period)
+    const revenueCurrentPeriod = await MoneyRequest.find({
+      status: "paid",
+      "paymentDetails.paidAt": { $gte: currentPeriodStart, $lte: currentPeriodEnd },
+    }).select("totalAmount commission");
+
+    const revenuePreviousPeriod = await MoneyRequest.find({
+      status: "paid",
+      "paymentDetails.paidAt": { $gte: previousPeriodStart, $lte: previousPeriodEnd },
+    }).select("totalAmount commission");
+
+    let revenueCurrent = 0;
+    let commissionCurrent = 0;
+    revenueCurrentPeriod.forEach((request) => {
+      revenueCurrent += request.totalAmount || 0;
+      commissionCurrent += request.commission?.amount || 0;
+    });
+
+    let revenuePrevious = 0;
+    let commissionPrevious = 0;
+    revenuePreviousPeriod.forEach((request) => {
+      revenuePrevious += request.totalAmount || 0;
+      commissionPrevious += request.commission?.amount || 0;
+    });
+
+    const revenueGrowth = calculateGrowth(revenueCurrent, revenuePrevious);
+    const balanceGrowth = calculateGrowth(commissionCurrent, commissionPrevious);
 
     // Total users = Customers + Providers
     const totalUsers = totalCustomers + totalProviders;
@@ -248,6 +348,48 @@ exports.getDashboardStats = async (req, res) => {
           activeProviders,
           recentCustomers,
           recentProviders,
+        },
+        growth: {
+          customers: {
+            value: parseFloat(customersGrowth.toFixed(2)),
+            period: growthPeriodLabel,
+            current: customersCurrentPeriod,
+            previous: customersPreviousPeriod,
+            currentPeriodStart: currentPeriodStart.toISOString().split('T')[0],
+            currentPeriodEnd: currentPeriodEnd.toISOString().split('T')[0],
+            previousPeriodStart: previousPeriodStart.toISOString().split('T')[0],
+            previousPeriodEnd: previousPeriodEnd.toISOString().split('T')[0],
+          },
+          providers: {
+            value: parseFloat(providersGrowth.toFixed(2)),
+            period: growthPeriodLabel,
+            current: providersCurrentPeriod,
+            previous: providersPreviousPeriod,
+            currentPeriodStart: currentPeriodStart.toISOString().split('T')[0],
+            currentPeriodEnd: currentPeriodEnd.toISOString().split('T')[0],
+            previousPeriodStart: previousPeriodStart.toISOString().split('T')[0],
+            previousPeriodEnd: previousPeriodEnd.toISOString().split('T')[0],
+          },
+          revenue: {
+            value: parseFloat(revenueGrowth.toFixed(2)),
+            period: growthPeriodLabel,
+            current: revenueCurrent,
+            previous: revenuePrevious,
+            currentPeriodStart: currentPeriodStart.toISOString().split('T')[0],
+            currentPeriodEnd: currentPeriodEnd.toISOString().split('T')[0],
+            previousPeriodStart: previousPeriodStart.toISOString().split('T')[0],
+            previousPeriodEnd: previousPeriodEnd.toISOString().split('T')[0],
+          },
+          balance: {
+            value: parseFloat(balanceGrowth.toFixed(2)),
+            period: growthPeriodLabel,
+            current: commissionCurrent,
+            previous: commissionPrevious,
+            currentPeriodStart: currentPeriodStart.toISOString().split('T')[0],
+            currentPeriodEnd: currentPeriodEnd.toISOString().split('T')[0],
+            previousPeriodStart: previousPeriodStart.toISOString().split('T')[0],
+            previousPeriodEnd: previousPeriodEnd.toISOString().split('T')[0],
+          },
         },
         pendingActions: {
           pendingVerifications, // Providers awaiting verification
@@ -487,7 +629,30 @@ exports.updateAdminProfile = async (req, res) => {
     if (lastName) admin.lastName = lastName;
     if (email) admin.email = email;
     if (phone) admin.phone = phone;
-    if (profileImage) admin.profileImage = profileImage;
+
+    // Handle profileImage update with Cloudinary cleanup
+    if (profileImage) {
+      // If profileImage is being updated and there's an existing image, delete it from Cloudinary
+      if (admin.profileImage && admin.profileImage.publicId) {
+        try {
+          await deleteImageFromCloudinary(admin.profileImage.publicId);
+        } catch (error) {
+          console.error("Error deleting old profile image from Cloudinary:", error);
+          // Continue with update even if deletion fails
+        }
+      }
+
+      // Update with new profileImage (expecting object with url and publicId)
+      if (typeof profileImage === 'object' && profileImage.url) {
+        admin.profileImage = profileImage;
+      } else if (typeof profileImage === 'string') {
+        // Fallback for string URLs (backward compatibility)
+        admin.profileImage = {
+          url: profileImage,
+          publicId: "",
+        };
+      }
+    }
 
     await admin.save();
 
