@@ -7,10 +7,65 @@ const ServiceRequest = require("../models/ServiceRequest");
 const ServiceProvider = require("../models/ServiceProvider");
 const Customer = require("../models/Customer");
 const Bundle = require("../models/Bundle");
+const Notification = require("../models/Notification");
 
 // Store user connections
 const userSocketMap = new Map();
 let io;
+
+// Build notification payload
+const buildNotification = ({
+  title,
+  body,
+  requestId,
+  bundleId,
+  recipientRole,
+  customerId,
+}) => {
+  // Ignore internal/system markers
+  if (body === "__MONEY_REQUEST__") return null;
+
+  if (body === "__TASK_COMPLETED__SERVICE") {
+    body = "Service task completed";
+  }
+
+  let link = '/conversation';
+  const idPart = requestId || bundleId;
+
+  if (recipientRole === 'provider' && idPart && customerId) {
+    link = `/provider/signup/message/${idPart}-${customerId}`;
+  } else if (requestId) {
+    link = `/conversation/request-${requestId}`;
+  } else if (bundleId) {
+    link = `/conversation/bundle-${bundleId}`;
+  }
+
+  return {
+    id: new mongoose.Types.ObjectId().toString(),
+    title: title || "New message",
+    body: body || "",
+    link,
+    createdAt: new Date().toISOString(),
+    isRead: false,
+  };
+};
+
+// Persist notification for offline access
+const persistNotification = async (userId, payload) => {
+  if (!payload || !userId) return;
+  try {
+    await Notification.create({
+      user: userId,
+      title: payload.title,
+      body: payload.body,
+      link: payload.link,
+      isRead: false,
+      createdAt: payload.createdAt || new Date(),
+    });
+  } catch (err) {
+    console.error("notification persist error:", err.message);
+  }
+};
 
 // Improved authentication middleware
 const authenticateSocket = async (socket, next) => {
@@ -176,7 +231,18 @@ async function getOrCreateConversationV2(socket, { requestId, bundleId, customer
         .populate("customer")
         .populate("provider");
 
-      if (!serviceRequest) throw new Error("Service request not found");
+      if (!serviceRequest) {
+        // Fallback: if service request is missing, try existing conversation to avoid hard failure
+        const existingConv = await Conversation.findOne({ requestId });
+        if (existingConv) {
+          const canAccess =
+            socket.userId === existingConv.customerId?.toString?.() ||
+            socket.userId === existingConv.providerId?.toString?.();
+          if (!canAccess) throw new Error("Access denied to this conversation");
+          return existingConv;
+        }
+        throw new Error("Service request not found");
+      }
 
       const hasAccess =
         socket.userId === serviceRequest.customer._id.toString() ||
@@ -776,6 +842,8 @@ async function handleSendQuickChat(socket, data) {
     const otherUserId = socket.userRole === "customer" 
       ? conversation.providerId 
       : conversation.customerId;
+    const recipientRole = socket.userRole === "customer" ? "provider" : "customer";
+    const notificationCustomerId = conversation.customerId?.toString?.();
 
     if (otherUserId) {
       // Send conversation update notification
@@ -791,6 +859,23 @@ async function handleSendQuickChat(socket, data) {
           isQuickChat: true,
         },
       });
+
+      // Send notification event
+      const notificationPayload = buildNotification({
+        title: "New message",
+        body: quickChat.content,
+        requestId: conversation.requestId,
+        bundleId: conversation.bundleId,
+        recipientRole,
+        customerId: notificationCustomerId,
+      });
+      if (notificationPayload) {
+        persistNotification(otherUserId, notificationPayload);
+        emitToUser(otherUserId, "message", {
+          type: "notification",
+          data: notificationPayload,
+        });
+      }
     }
 
     // Send confirmation to sender
@@ -1116,6 +1201,8 @@ async function handleSendMessage(socket, data) {
     const otherUserId = socket.userRole === "customer"
       ? conversation.providerId
       : conversation.customerId;
+    const recipientRole = socket.userRole === "customer" ? "provider" : "customer";
+    const notificationCustomerId = conversation.customerId?.toString?.();
 
     if (otherUserId) {
       io.to(`user_${otherUserId}`).emit("message", {
@@ -1128,6 +1215,22 @@ async function handleSendMessage(socket, data) {
           hasNewMessage: true,
         },
       });
+
+      const notificationPayload = buildNotification({
+        title: "New message",
+        body: content,
+        requestId: conversation.requestId,
+        bundleId: conversation.bundleId,
+        recipientRole,
+        customerId: notificationCustomerId,
+      });
+      if (notificationPayload) {
+        persistNotification(otherUserId, notificationPayload);
+        emitToUser(otherUserId, "message", {
+          type: "notification",
+          data: notificationPayload,
+        });
+      }
     }
 
     socket.emit("message", {

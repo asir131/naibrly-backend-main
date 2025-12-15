@@ -237,7 +237,6 @@ const createBundle = async (customer, provider) => {
     },
     finalPrice: 315,
     providerOffers: [],
-    expiresAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
     shareToken: "seed-share-token",
   });
   logStep("Created sample bundle");

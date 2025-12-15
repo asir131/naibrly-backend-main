@@ -212,6 +212,8 @@ app.use("/api/quick-chats", require("./routes/quickChats"));
 
 // Conversation routes
 app.use("/api/conversations", require("./routes/conversation"));
+// Notification routes
+app.use("/api/notifications", require("./routes/notifications"));
 
 // Search routes
 app.use("/api/search", require("./routes/search"));

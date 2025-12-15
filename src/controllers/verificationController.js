@@ -1,20 +1,20 @@
 const Verification = require("../models/Verification");
 const ServiceProvider = require("../models/ServiceProvider");
 const PayoutInformation = require("../models/PayoutInformation");
-const { cloudinary } = require("../config/cloudinary");
+const { cloudinary, hasCloudinaryConfig } = require("../config/cloudinary");
 
 exports.submitVerification = async (req, res) => {
   try {
-    console.log("🔄 Starting verification submission...");
-    console.log("📦 Request body:", req.body);
-    console.log("📁 Request files:", req.files);
+    console.log("[verify] Starting verification submission...");
+    console.log("[verify] Request body:", req.body);
+    console.log("[verify] Request files:", req.files);
 
     const { einNumber, firstName, lastName, businessRegisteredCountry } =
       req.body;
 
     // Validation - check all required fields
     if (!einNumber || !firstName || !lastName || !businessRegisteredCountry) {
-      console.log("❌ Missing required fields");
+      console.log("Missing required fields");
       return res.status(400).json({
         success: false,
         message: "EIN Number, first name, last name, and country are required",
@@ -29,7 +29,7 @@ exports.submitVerification = async (req, res) => {
 
     // Check if files are uploaded
     if (!req.files) {
-      console.log("❌ No files uploaded");
+      console.log("No files uploaded");
       return res.status(400).json({
         success: false,
         message:
@@ -41,14 +41,14 @@ exports.submitVerification = async (req, res) => {
     const idCardFront = req.files["idCardFront"]?.[0];
     const idCardBack = req.files["idCardBack"]?.[0];
 
-    console.log("📄 File details:", {
+    console.log("[verify] File details:", {
       insurance: insuranceDocument?.originalname,
       idFront: idCardFront?.originalname,
       idBack: idCardBack?.originalname,
     });
 
     if (!insuranceDocument || !idCardFront || !idCardBack) {
-      console.log("❌ Missing required files");
+      console.log("Missing required files");
       return res.status(400).json({
         success: false,
         message:
@@ -64,18 +64,18 @@ exports.submitVerification = async (req, res) => {
     // Check if provider exists
     const provider = await ServiceProvider.findById(req.user._id);
     if (!provider) {
-      console.log("❌ Provider not found:", req.user._id);
+      console.log("Provider not found:", req.user._id);
       return res.status(404).json({
         success: false,
         message: "Service provider not found",
       });
     }
 
-    console.log("✅ Provider found:", provider.businessNameRegistered);
+    console.log("Provider found:", provider.businessNameRegistered);
 
     // Check if provider is approved
     if (!provider.isApproved && provider.approvalStatus !== "approved") {
-      console.log("❌ Provider not approved");
+      console.log("Provider not approved");
       return res.status(400).json({
         success: false,
         message:
@@ -90,14 +90,14 @@ exports.submitVerification = async (req, res) => {
     });
 
     if (existingVerification) {
-      console.log("❌ Pending verification already exists");
+      console.log("Pending verification already exists");
       return res.status(400).json({
         success: false,
         message: "You already have a pending verification request",
       });
     }
 
-    console.log("✅ Creating new verification record...");
+    console.log("Creating new verification record...");
 
     // Create verification record with all documents
     const verification = new Verification({
@@ -107,32 +107,52 @@ exports.submitVerification = async (req, res) => {
       lastName,
       businessRegisteredCountry,
       insuranceDocument: {
-        url: insuranceDocument.path,
-        publicId: insuranceDocument.filename,
+        url:
+          insuranceDocument.path ||
+          insuranceDocument.filename ||
+          insuranceDocument.originalname ||
+          "",
+        publicId:
+          insuranceDocument.filename ||
+          insuranceDocument.originalname ||
+          `insurance_${Date.now()}`,
       },
       idCardFront: {
-        url: idCardFront.path,
-        publicId: idCardFront.filename,
+        url:
+          idCardFront.path ||
+          idCardFront.filename ||
+          idCardFront.originalname ||
+          "",
+        publicId:
+          idCardFront.filename ||
+          idCardFront.originalname ||
+          `id_front_${Date.now()}`,
       },
       idCardBack: {
-        url: idCardBack.path,
-        publicId: idCardBack.filename,
+        url:
+          idCardBack.path ||
+          idCardBack.filename ||
+          idCardBack.originalname ||
+          "",
+        publicId:
+          idCardBack.filename ||
+          idCardBack.originalname ||
+          `id_back_${Date.now()}`,
       },
     });
 
-    console.log("💾 Saving verification to database...");
+    console.log("Saving verification to database...");
     await verification.save();
-    console.log("✅ Verification saved:", verification._id);
+    console.log("Verification saved:", verification._id);
 
     // Update provider verification status
     provider.isVerified = false;
     await provider.save();
-    console.log("✅ Provider verification status updated");
+    console.log("Provider verification status updated");
 
     res.status(201).json({
       success: true,
-      message:
-        "Verification information submitted successfully with all documents",
+      message: "Verification information submitted successfully with all documents",
       data: {
         verification: {
           id: verification._id,
@@ -149,9 +169,9 @@ exports.submitVerification = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Submit verification error:", error);
-    console.error("❌ Error stack:", error.stack);
-    console.error("❌ Error details:", {
+    console.error("Submit verification error:", error);
+    console.error("Error stack:", error.stack);
+    console.error("Error details:", {
       name: error.name,
       message: error.message,
       code: error.code,
@@ -161,7 +181,7 @@ exports.submitVerification = async (req, res) => {
 
     // Delete all uploaded files if verification fails
     if (req.files) {
-      console.log("🗑️ Cleaning up uploaded files due to error...");
+      console.log("Cleaning up uploaded files due to error...");
       const filesToDelete = [];
 
       if (req.files["insuranceDocument"]?.[0]?.filename) {
@@ -174,12 +194,14 @@ exports.submitVerification = async (req, res) => {
         filesToDelete.push(req.files["idCardBack"][0].filename);
       }
 
-      for (const publicId of filesToDelete) {
-        try {
-          await cloudinary.uploader.destroy(publicId);
-          console.log(`✅ Deleted uploaded file: ${publicId}`);
-        } catch (deleteError) {
-          console.error(`❌ Error deleting file ${publicId}:`, deleteError);
+      if (hasCloudinaryConfig) {
+        for (const publicId of filesToDelete) {
+          try {
+            await cloudinary.uploader.destroy(publicId);
+            console.log(`Deleted uploaded file: ${publicId}`);
+          } catch (deleteError) {
+            console.error(`Error deleting file ${publicId}:`, deleteError);
+          }
         }
       }
     }
@@ -235,7 +257,6 @@ exports.getAllVerifications = async (req, res) => {
     const { page = 1, limit = 10, status } = req.query;
     const skip = (page - 1) * limit;
 
-    // Only show pending verifications (default) and exclude providers already marked verified
     const effectiveStatus = status || "pending";
 
     const pipeline = [
@@ -376,10 +397,8 @@ exports.reviewVerification = async (req, res) => {
 
     await verification.save();
 
-    // Update provider verification status
     if (verification.provider) {
       verification.provider.isVerified = status === "approved";
-      // Update provider name from verification data upon approval
       if (status === "approved") {
         if (verification.firstName) {
           verification.provider.firstName = verification.firstName;
@@ -388,7 +407,6 @@ exports.reviewVerification = async (req, res) => {
           verification.provider.lastName = verification.lastName;
         }
 
-        // Store verified documents on provider profile (documents section)
         const docEntries = [];
         if (verification.insuranceDocument?.url) {
           docEntries.push({
@@ -429,7 +447,6 @@ exports.reviewVerification = async (req, res) => {
       }
       await verification.provider.save();
 
-      // Sync payout verification status with admin decision if payout info exists
       await PayoutInformation.findOneAndUpdate(
         { provider: verification.provider._id },
         {
@@ -486,7 +503,7 @@ exports.getProviderVerificationBundle = async (req, res) => {
     const payoutInfo = await PayoutInformation.findOne({
       provider: providerId,
       isActive: true,
-    }).select("-accountNumber"); // mask raw account number
+    }).select("-accountNumber");
 
     const verificationData = latestVerification
       ? {
@@ -536,7 +553,6 @@ exports.deleteVerification = async (req, res) => {
       });
     }
 
-    // 🆕 NEW: Delete all documents from Cloudinary
     const filesToDelete = [];
 
     if (verification.insuranceDocument?.publicId) {
@@ -549,13 +565,14 @@ exports.deleteVerification = async (req, res) => {
       filesToDelete.push(verification.idCardBack.publicId);
     }
 
-    // Delete all files from Cloudinary
-    for (const publicId of filesToDelete) {
-      try {
-        await cloudinary.uploader.destroy(publicId);
-        console.log(`✅ Deleted verification file: ${publicId}`);
-      } catch (deleteError) {
-        console.error(`❌ Error deleting file ${publicId}:`, deleteError);
+    if (hasCloudinaryConfig) {
+      for (const publicId of filesToDelete) {
+        try {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`Deleted verification file: ${publicId}`);
+        } catch (deleteError) {
+          console.error(`Error deleting file ${publicId}:`, deleteError);
+        }
       }
     }
 
@@ -575,7 +592,7 @@ exports.deleteVerification = async (req, res) => {
   }
 };
 
-// 🆕 NEW: Get verification by ID (for admin/details)
+// Get verification by ID
 exports.getVerificationById = async (req, res) => {
   try {
     const { verificationId } = req.params;

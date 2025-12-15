@@ -1,6 +1,36 @@
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const MoneyRequest = require("../models/MoneyRequest");
 const ServiceProvider = require("../models/ServiceProvider");
+const { emitToUser } = require("../socket");
+
+// Notify provider that a payment was received
+const notifyProviderPaymentReceived = (moneyRequest, amount) => {
+  if (!moneyRequest?.provider) return;
+
+  const providerId =
+    moneyRequest.provider._id?.toString?.() || moneyRequest.provider.toString();
+  const customerId =
+    moneyRequest.customer?._id?.toString?.() ||
+    moneyRequest.customer?.toString?.();
+
+  let link = "/conversation";
+  if (moneyRequest.serviceRequest && customerId) {
+    link = `/provider/signup/message/${moneyRequest.serviceRequest}-${customerId}`;
+  } else if (moneyRequest.bundle && customerId) {
+    link = `/provider/signup/message/${moneyRequest.bundle}-${customerId}`;
+  }
+
+  const payload = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: "Payment received",
+    body: `Payment of $${Number(amount || 0).toFixed(2)} received`,
+    link,
+    createdAt: new Date().toISOString(),
+    isRead: false,
+  };
+
+  emitToUser(providerId, "message", { type: "notification", data: payload });
+};
 
 const handleStripeWebhook = async (req, res) => {
   let event;
@@ -135,6 +165,9 @@ const handleCheckoutSessionCompleted = async (session) => {
 
       await moneyRequest.save();
       console.log("✅ Money request saved with paid status");
+
+      // Realtime notify provider about received payment
+      notifyProviderPaymentReceived(moneyRequest, amount_total / 100);
 
       // Update provider's earnings
       if (moneyRequest.provider) {

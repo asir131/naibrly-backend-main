@@ -96,7 +96,6 @@ exports.createBundle = async (req, res) => {
     // Get bundle settings for discount
     const bundleSettings = await BundleSettings.findOne();
     const bundleDiscount = bundleSettings?.bundleDiscount || 10;
-    const bundleExpiryHours = bundleSettings?.bundleExpiryHours || 24;
 
     // Validate services exist in the system and get default hourly rates
     const validServices = await Service.find({
@@ -127,9 +126,6 @@ exports.createBundle = async (req, res) => {
       "🔍 Debug - Services with default rates:",
       servicesWithDefaultRates
     );
-
-    // Calculate expiry date
-    const expiresAt = new Date(Date.now() + bundleExpiryHours * 60 * 60 * 1000);
 
     // Calculate pricing BEFORE creating bundle
     const totalPrice = servicesWithDefaultRates.reduce((sum, service) => {
@@ -169,7 +165,6 @@ exports.createBundle = async (req, res) => {
         },
       ],
       bundleDiscount: bundleDiscount,
-      expiresAt: expiresAt,
       shareToken: crypto.randomBytes(16).toString("hex"),
       // NEW: Store pricing in database
       pricing: {
@@ -279,13 +274,6 @@ exports.joinBundle = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Bundle is not accepting new participants",
-      });
-    }
-
-    if (new Date() > bundle.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: "Bundle has expired",
       });
     }
 
@@ -414,8 +402,7 @@ exports.getBundlesByZipCode = async (req, res) => {
     const filter = {
       zipCode: zipCode,
       status: { $in: ["pending", "accepted"] },
-      expiresAt: { $gt: new Date() },
-      currentParticipants: { $lt: "$maxParticipants" }, // Has available spotss
+      $expr: { $lt: ["$currentParticipants", "$maxParticipants"] }, // Has available spots
     };
 
     if (category) {
@@ -973,7 +960,6 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
     const filter = {
       zipCode: customerZipCode,
       status: { $in: ["pending", "accepted"] },
-      expiresAt: { $gt: new Date() },
       $expr: { $lt: ["$currentParticipants", "$maxParticipants"] }, // FIXED: Use $expr for field comparison
     };
 
@@ -1095,7 +1081,6 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
     const filter = {
       zipCode: searchZipCode,
       status: { $in: ["pending", "accepted"] },
-      expiresAt: { $gt: new Date() },
       $expr: { $lt: ["$currentParticipants", "$maxParticipants"] },
     };
 
@@ -1548,10 +1533,8 @@ exports.getAllBundles = async (req, res) => {
     if (status) {
       if (status === "active") {
         filter.status = { $in: ["pending", "accepted", "in_progress"] };
-        filter.expiresAt = { $gt: new Date() };
       } else if (status === "available") {
         filter.status = { $in: ["pending", "accepted"] };
-        filter.expiresAt = { $gt: new Date() };
         filter.$expr = { $lt: ["$currentParticipants", "$maxParticipants"] };
       } else {
         filter.status = status;
@@ -1559,7 +1542,6 @@ exports.getAllBundles = async (req, res) => {
     } else {
       // Default: show active bundles only
       filter.status = { $in: ["pending", "accepted", "in_progress"] };
-      filter.expiresAt = { $gt: new Date() };
     }
 
     // Category filter
@@ -1618,7 +1600,7 @@ exports.getAllBundles = async (req, res) => {
         sortOptions.currentParticipants = sortOrder === "asc" ? 1 : -1;
         break;
       case "expiry":
-        sortOptions.expiresAt = sortOrder === "asc" ? 1 : -1;
+        sortOptions.serviceDate = sortOrder === "asc" ? 1 : -1;
         break;
       case "title":
         sortOptions.title = sortOrder === "asc" ? 1 : -1;
@@ -1658,19 +1640,13 @@ exports.getAllBundles = async (req, res) => {
       const availableSpots =
         bundle.maxParticipants - bundle.currentParticipants;
 
-      // Calculate time remaining
-      const timeRemaining = bundle.expiresAt - new Date();
-      const hoursRemaining = Math.max(
-        0,
-        Math.floor(timeRemaining / (1000 * 60 * 60))
-      );
+      // No expiry date: urgency is based only on spots/status
+      const hoursRemaining = null;
 
       // Determine bundle status for display
       let displayStatus = bundle.status;
       if (bundle.status === "pending" && availableSpots === 0) {
         displayStatus = "full";
-      } else if (bundle.status === "pending" && hoursRemaining < 24) {
-        displayStatus = "urgent";
       }
 
       return {
@@ -1679,11 +1655,8 @@ exports.getAllBundles = async (req, res) => {
         availableSpots: availableSpots,
         displayStatus: displayStatus,
         hoursRemaining: hoursRemaining,
-        isExpired: new Date() > bundle.expiresAt,
-        canJoin:
-          availableSpots > 0 &&
-          bundle.status === "pending" &&
-          new Date() <= bundle.expiresAt,
+        isExpired: false,
+        canJoin: availableSpots > 0 && bundle.status === "pending",
         servicesCount: bundle.services.length,
         totalEstimatedHours: bundle.services.reduce(
           (sum, service) => sum + (service.estimatedHours || 1),
@@ -1755,19 +1728,17 @@ exports.getAllBundles = async (req, res) => {
             }
           : null,
         categories: categoryStats,
-        summary: {
-          activeBundles: bundlesWithDetails.filter(
-            (b) =>
-              b.status === "pending" && !b.isExpired && b.availableSpots > 0
-          ).length,
-          expiringSoon: bundlesWithDetails.filter(
-            (b) => b.hoursRemaining < 24 && b.status === "pending"
-          ).length,
-          fullBundles: bundlesWithDetails.filter((b) => b.availableSpots === 0)
-            .length,
+          summary: {
+            activeBundles: bundlesWithDetails.filter(
+              (b) =>
+                b.status === "pending" && !b.isExpired && b.availableSpots > 0
+            ).length,
+            expiringSoon: 0,
+            fullBundles: bundlesWithDetails.filter((b) => b.availableSpots === 0)
+              .length,
+          },
         },
-      },
-    });
+      });
   } catch (error) {
     console.error("Get all bundles error:", error);
     res.status(500).json({
@@ -1927,14 +1898,6 @@ exports.joinBundleViaShareToken = async (req, res) => {
       });
     }
 
-    // Check if bundle is expired
-    if (new Date() > bundle.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: "Bundle has expired",
-      });
-    }
-
     // Use the join bundle logic
     return exports.joinBundle(
       {
@@ -1977,14 +1940,6 @@ exports.getBundleByShareToken = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Bundle not found or link has expired",
-      });
-    }
-
-    // If expired, do not allow join
-    if (new Date() > bundle.expiresAt) {
-      return res.status(400).json({
-        success: false,
-        message: "Bundle has expired",
       });
     }
 
@@ -2102,4 +2057,3 @@ exports.addBundleReview = async (req, res) => {
     });
   }
 };
-

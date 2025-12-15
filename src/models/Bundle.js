@@ -181,10 +181,6 @@ const bundleSchema = new mongoose.Schema(
         },
       },
     ],
-    expiresAt: {
-      type: Date,
-      required: true,
-    },
     completedAt: {
       type: Date,
     },
@@ -258,7 +254,6 @@ bundleSchema.methods.isCustomerInBundle = function (customerId) {
 
 bundleSchema.index({ zipCode: 1, status: 1 });
 bundleSchema.index({ category: 1, status: 1 });
-bundleSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 bundleSchema.index({ "services.name": 1 });
 bundleSchema.index({ provider: 1, status: 1 });
 

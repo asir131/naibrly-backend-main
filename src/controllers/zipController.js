@@ -274,14 +274,13 @@ exports.getNearbyBundles = async (req, res) => {
     console.log("🔍 Provider services:", providerServices);
 
     // Find bundles that match provider's service areas and services
-    const filter = {
-      zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
-      status: status,
-      expiresAt: { $gt: new Date() },
-      $or: [
-        {
-          "services.name": {
-            $in: providerServices,
+  const filter = {
+    zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
+    status: status,
+    $or: [
+      {
+        "services.name": {
+          $in: providerServices,
           },
         },
         {

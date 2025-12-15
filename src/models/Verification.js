@@ -20,33 +20,33 @@ const verificationSchema = new mongoose.Schema(
     insuranceDocument: {
       url: {
         type: String,
-        required: [true, "Insurance document is required"],
+        required: false,
       },
       publicId: {
         type: String,
-        required: true,
+        required: false,
       },
     },
     // 🆕 NEW: ID Card Front Image
     idCardFront: {
       url: {
         type: String,
-        required: [true, "ID Card Front image is required"],
+        required: false,
       },
       publicId: {
         type: String,
-        required: true,
+        required: false,
       },
     },
     // 🆕 NEW: ID Card Back Image
     idCardBack: {
       url: {
         type: String,
-        required: [true, "ID Card Back image is required"],
+        required: false,
       },
       publicId: {
         type: String,
-        required: true,
+        required: false,
       },
     },
     firstName: {

@@ -1,4 +1,5 @@
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const mongoose = require("mongoose");
 const MoneyRequest = require("../models/MoneyRequest");
 const ServiceRequest = require("../models/ServiceRequest");
 const Bundle = require("../models/Bundle");
@@ -9,6 +10,72 @@ const {
   calculateBundleCommission,
 } = require("./commissionController");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
+const { emitToUser } = require("../socket");
+const Notification = require("../models/Notification");
+
+// Build and send realtime notification via Socket.IO
+const buildMoneyNotification = ({
+  title,
+  body,
+  serviceRequestId,
+  bundleId,
+  recipientRole,
+  customerId,
+}) => {
+  let link = "/conversation";
+  const idPart = serviceRequestId || bundleId;
+
+  if (recipientRole === "provider" && idPart && customerId) {
+    link = `/provider/signup/message/${idPart}-${customerId}`;
+  } else if (serviceRequestId) {
+    link = `/conversation/request-${serviceRequestId}`;
+  } else if (bundleId) {
+    link = `/conversation/bundle-${bundleId}`;
+  }
+
+  return {
+    id: new Date().getTime().toString(),
+    title: title || "Money request update",
+    body: body || "",
+    link,
+    createdAt: new Date().toISOString(),
+    isRead: false,
+  };
+};
+
+const sendMoneyNotification = async ({
+  userId,
+  title,
+  body,
+  serviceRequestId,
+  bundleId,
+  recipientRole,
+  customerId,
+}) => {
+  if (!userId) return;
+  const payload = buildMoneyNotification({
+    title,
+    body,
+    serviceRequestId,
+    bundleId,
+    recipientRole,
+    customerId,
+  });
+  emitToUser(userId, "message", { type: "notification", data: payload });
+  // persist for offline users
+  try {
+    await Notification.create({
+      user: userId,
+      title: payload.title,
+      body: payload.body,
+      link: payload.link,
+      isRead: false,
+      createdAt: payload.createdAt || new Date(),
+    });
+  } catch (err) {
+    console.error("persist money notification error:", err.message);
+  }
+};
 
 const createMoneyRequest = async (req, res) => {
   try {
@@ -207,6 +274,49 @@ const createMoneyRequest = async (req, res) => {
         { path: "bundle", select: "title category bundleDiscount" },
       ]);
 
+      // Notify customer about the money request
+      sendMoneyNotification({
+        userId: customerId,
+        recipientRole: "customer",
+        serviceRequestId,
+        bundleId,
+        customerId,
+        title: "Payment requested",
+        body: `Payment of $${finalAmount} requested`,
+      });
+
+      // Realtime socket ping so customer UI refetches money requests
+      const systemMessage = {
+        _id: new mongoose.Types.ObjectId(),
+        senderId: providerId,
+        senderRole: "provider",
+        content: "__MONEY_REQUEST__",
+        timestamp: new Date(),
+        meta: {
+          moneyRequestId: savedRequest._id,
+          amount: finalAmount,
+          serviceRequestId,
+          bundleId,
+        },
+      };
+      emitToUser(customerId, "message", {
+        type: "new_message",
+        data: { message: systemMessage },
+      });
+
+      // Emit dedicated money request event so UI can react immediately
+      emitToUser(customerId, "message", {
+        type: "money_request_created",
+        data: {
+          moneyRequestId: savedRequest._id,
+          amount: finalAmount,
+          serviceRequestId,
+          bundleId,
+          providerId,
+          status: savedRequest.status,
+        },
+      });
+
       moneyRequests.push(savedRequest);
     }
 
@@ -294,6 +404,17 @@ const acceptMoneyRequest = async (req, res) => {
       { path: "provider", select: "businessNameRegistered email" },
     ]);
 
+    // Notify provider that the customer accepted the request
+    sendMoneyNotification({
+      userId: moneyRequest.provider,
+      recipientRole: "provider",
+      serviceRequestId: moneyRequest.serviceRequest,
+      bundleId: moneyRequest.bundle,
+      customerId,
+      title: "Money request accepted",
+      body: `Accepted for $${moneyRequest.totalAmount}`,
+    });
+
     res.json({
       success: true,
       message:
@@ -342,6 +463,17 @@ const cancelMoneyRequest = async (req, res) => {
 
     console.log("Saving cancelled money request...");
     await moneyRequest.save();
+
+    // Notify provider that the customer cancelled the request
+    sendMoneyNotification({
+      userId: moneyRequest.provider,
+      recipientRole: "provider",
+      serviceRequestId: moneyRequest.serviceRequest,
+      bundleId: moneyRequest.bundle,
+      customerId,
+      title: "Money request cancelled",
+      body: "Customer cancelled the payment request",
+    });
 
     res.json({
       success: true,
@@ -511,6 +643,17 @@ const acceptMoneyRequestWithAmount = async (req, res) => {
       { path: "provider", select: "businessNameRegistered email" },
     ]);
 
+    // Notify provider that the customer accepted the request
+    sendMoneyNotification({
+      userId: moneyRequest.provider,
+      recipientRole: "provider",
+      serviceRequestId: moneyRequest.serviceRequest,
+      bundleId: moneyRequest.bundle,
+      customerId,
+      title: "Money request accepted",
+      body: `Accepted for $${moneyRequest.totalAmount || moneyRequest.amount}`,
+    });
+
     res.json({
       success: true,
       message: "Money request accepted",
@@ -629,6 +772,17 @@ const setAmountAndPay = async (req, res) => {
     };
 
     await moneyRequest.save();
+
+    // Notify provider that the customer proceeded to pay/accept with amount
+    sendMoneyNotification({
+      userId: moneyRequest.provider?._id || moneyRequest.provider,
+      recipientRole: "provider",
+      serviceRequestId: moneyRequest.serviceRequest,
+      bundleId: moneyRequest.bundle,
+      customerId,
+      title: "Money request accepted",
+      body: `Accepted for $${moneyRequest.totalAmount}`,
+    });
 
     res.json({
       success: true,
@@ -1108,7 +1262,19 @@ const handlePaymentSuccess = async (req, res) => {
 
       await moneyRequest.save();
       console.log("Money request updated to paid status via success handler");
-    const wantsJson =
+
+      // Notify provider that payment was received
+      sendMoneyNotification({
+        userId: moneyRequest.provider?._id || moneyRequest.provider,
+        recipientRole: "provider",
+        serviceRequestId: moneyRequest.serviceRequest,
+        bundleId: moneyRequest.bundle,
+        customerId: moneyRequest.customer?._id || moneyRequest.customer,
+        title: "Payment received",
+        body: `Payment of $${(session.amount_total / 100).toFixed(2)} received`,
+      });
+
+      const wantsJson =
         (req.headers.accept && req.headers.accept.includes("application/json")) ||
         req.query.format === "json";
 
@@ -1583,4 +1749,3 @@ module.exports = {
   handlePaymentCancel,
   checkPaymentStatus,
 };
-

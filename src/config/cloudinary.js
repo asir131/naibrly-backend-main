@@ -223,21 +223,34 @@
 //   handleMulterError, // 🆕 Export error handler
 // };
 
-const cloudinary = require("cloudinary").v2;
+const cloudinary = require("cloudinary");
 const cloudinaryMulter = require("multer-storage-cloudinary");
 const CloudinaryStorage =
   cloudinaryMulter.CloudinaryStorage || cloudinaryMulter;
 const multer = require("multer");
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+// Detect if cloudinary creds are set
+const hasCloudinaryConfig =
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET;
+
+// Configure Cloudinary only when creds present
+if (hasCloudinaryConfig) {
+  cloudinary.v2.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
 
 // Universal storage configuration for all images
 const createCloudinaryStorage = (folder) => {
+  if (!hasCloudinaryConfig) {
+    // fallback to memory storage when cloudinary is not configured
+    return multer.memoryStorage();
+  }
+
   return new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
@@ -335,36 +348,38 @@ const deleteDocumentFromCloudinary = async (publicId) => {
 };
 
 // 🆕 FIXED: Verification Storage Configuration
-const verificationStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "naibrly/verifications",
-    format: async (req, file) => {
-      // Support both images and PDFs for verification documents
-      if (file.mimetype === "image/jpeg") return "jpg";
-      if (file.mimetype === "image/png") return "png";
-      if (file.mimetype === "image/webp") return "webp";
-      if (file.mimetype === "application/pdf") return "pdf";
-      return "png"; // default
-    },
-    public_id: (req, file) => {
-      const timestamp = Date.now();
-      const randomString = Math.random().toString(36).substring(2, 15);
+const verificationStorage = hasCloudinaryConfig
+  ? new CloudinaryStorage({
+      cloudinary: cloudinary,
+      params: {
+        folder: "naibrly/verifications",
+        format: async (req, file) => {
+          // Support both images and PDFs for verification documents
+          if (file.mimetype === "image/jpeg") return "jpg";
+          if (file.mimetype === "image/png") return "png";
+          if (file.mimetype === "image/webp") return "webp";
+          if (file.mimetype === "application/pdf") return "pdf";
+          return "png"; // default
+        },
+        public_id: (req, file) => {
+          const timestamp = Date.now();
+          const randomString = Math.random().toString(36).substring(2, 15);
 
-      // Use fieldname to organize files better
-      let prefix = "verification";
-      if (file.fieldname === "insuranceDocument") {
-        prefix = "insurance";
-      } else if (file.fieldname === "idCardFront") {
-        prefix = "id_front";
-      } else if (file.fieldname === "idCardBack") {
-        prefix = "id_back";
-      }
+          // Use fieldname to organize files better
+          let prefix = "verification";
+          if (file.fieldname === "insuranceDocument") {
+            prefix = "insurance";
+          } else if (file.fieldname === "idCardFront") {
+            prefix = "id_front";
+          } else if (file.fieldname === "idCardBack") {
+            prefix = "id_back";
+          }
 
-      return `${prefix}_${timestamp}_${randomString}`;
-    },
-  },
-});
+          return `${prefix}_${timestamp}_${randomString}`;
+        },
+      },
+    })
+  : multer.memoryStorage();
 
 // 🆕 FIXED: Create upload middleware for verification documents
 const uploadVerificationDocuments = multer({
@@ -437,6 +452,7 @@ const handleMulterError = (error, req, res, next) => {
 
 module.exports = {
   cloudinary,
+  hasCloudinaryConfig,
   uploadProfileImage,
   uploadBusinessLogo,
   uploadInsuranceDocument,
@@ -447,4 +463,3 @@ module.exports = {
   uploadVerificationDocuments,
   handleMulterError, // 🆕 Export error handler
 };
-
