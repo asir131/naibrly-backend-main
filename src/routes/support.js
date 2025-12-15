@@ -11,13 +11,13 @@ const {
   getMyTickets,
   getTicketStats,
 } = require("../controllers/supportTicketController");
-const { auth: protect } = require("../middleware/auth");
+const { auth: protect, optionalAuth } = require("../middleware/auth");
 const { adminAuth } = require("../middleware/adminAuth");
 
 const router = express.Router();
 
-// Public routes
-router.post("/tickets", createTicket); // Anyone can create a ticket
+// Public routes (optionalAuth allows authenticated users to auto-fill their info)
+router.post("/tickets", optionalAuth, createTicket); // Anyone can create a ticket
 
 // Protected user routes (customers/providers)
 router.get("/tickets/my-tickets", protect, getMyTickets); // Get user's own tickets
