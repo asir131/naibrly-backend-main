@@ -116,28 +116,22 @@ initSocket(server);
 // Security middleware
 app.use(helmet());
 
-// CORS middleware
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000", // For local development
-      "http://localhost:5173", // Vite frontend
-      process.env.CLIENT_URL, // For production
-      process.env.FRONTEND_URL, // Admin dashboard
-      "https://naibrly-front-main-dgkr.vercel.app", // Vercel user frontend
-      "https://naibrly-dashboard.vercel.app", // Vercel admin dashboard
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'x-admin-secret',
-      'Authorization',
-      // Allow ngrok banner suppression header used by frontend
-      'ngrok-skip-browser-warning',
-    ],
-  })
-);
+// CORS middleware (reflect request headers to avoid preflight failures)
+const corsOptions = {
+  origin: [
+    "http://localhost:3000", // For local development
+    "http://localhost:5173", // Vite frontend
+    process.env.CLIENT_URL, // For production
+    process.env.FRONTEND_URL, // Admin dashboard
+    "https://naibrly-front-main-dgkr.vercel.app", // Vercel user frontend
+    "https://naibrly-dashboard.vercel.app", // Vercel admin dashboard
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+};
+app.use(cors(corsOptions));
+// Explicitly handle preflight for API routes using regex (Express 5 friendly)
+app.options(/^\/api\/.*/, cors(corsOptions));
 
 // Logging middleware
 app.use(morgan("combined"));

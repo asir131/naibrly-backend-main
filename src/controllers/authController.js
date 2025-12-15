@@ -371,35 +371,41 @@ const registerProvider = async (req, res) => {
       });
     }
 
-    // Handle business logo upload only (profile image removed)
-    let businessLogoData = { url: "", publicId: "" };
-    if (req.files && req.files["businessLogo"]) {
-      const businessLogo = req.files["businessLogo"][0];
-      console.log("Processing business logo from memory buffer");
+      // Handle business logo upload only (profile image removed)
+      // If outbound network is restricted, allow skipping Cloudinary to avoid timeouts
+      let businessLogoData = { url: "", publicId: "" };
+      const skipUploads = process.env.SKIP_UPLOADS === "true";
+      if (req.files && req.files["businessLogo"]) {
+        const businessLogo = req.files["businessLogo"][0];
+        console.log("Processing business logo from memory buffer");
 
-      try {
-        const timestamp = Date.now();
-        const randomString = Math.random().toString(36).substring(2, 15);
-        const publicId = `business_logo_${timestamp}_${randomString}`;
+        if (skipUploads) {
+          console.log("Skipping Cloudinary upload (SKIP_UPLOADS=true)");
+        } else {
+          try {
+            const timestamp = Date.now();
+            const randomString = Math.random().toString(36).substring(2, 15);
+            const publicId = `business_logo_${timestamp}_${randomString}`;
 
-        const result = await uploadToCloudinary(
-          businessLogo.buffer,
-          "naibrly/business-logos",
-          publicId
-        );
+            const result = await uploadToCloudinary(
+              businessLogo.buffer,
+              "naibrly/business-logos",
+              publicId
+            );
 
-        businessLogoData = {
-          url: result.secure_url,
-          publicId: result.public_id,
-        };
-        console.log("Business logo uploaded to Cloudinary:", businessLogoData);
-      } catch (uploadError) {
-        console.error(
-          "Cloudinary upload error for business logo:",
-          uploadError
-        );
+            businessLogoData = {
+              url: result.secure_url,
+              publicId: result.public_id,
+            };
+            console.log("Business logo uploaded to Cloudinary:", businessLogoData);
+          } catch (uploadError) {
+            console.error(
+              "Cloudinary upload error for business logo:",
+              uploadError
+            );
+          }
+        }
       }
-    }
 
     // Create business address object only if address fields are provided
     const businessAddress = {};
