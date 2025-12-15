@@ -5,24 +5,41 @@ const ServiceProvider = require("../models/ServiceProvider");
 // Create a new support ticket (Public - anyone can create)
 exports.createTicket = async (req, res) => {
   try {
-    const { name, email, subject, description, category, priority, attachments } = req.body;
+    let { name, email, subject, description, category, priority, attachments } = req.body;
 
-    // Validation
-    if (!name || !email || !subject || !description) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, email, subject, and description are required",
-      });
-    }
-
-    // Check if the user is authenticated and link the ticket to their account
+    // Check if the user is authenticated
     let user = null;
     let userModel = null;
 
     if (req.user) {
-      // User is authenticated - link ticket to their account
+      // User is authenticated - auto-fill name and email from their profile
       user = req.user._id;
       userModel = req.user.role === "customer" ? "Customer" : "ServiceProvider";
+
+      // Auto-fill name and email if not provided
+      if (!name) {
+        name = `${req.user.firstName} ${req.user.lastName}`;
+      }
+      if (!email) {
+        email = req.user.email;
+      }
+    }
+
+    // Set default category if not provided
+    const ticketCategory = category || "General Inquiry";
+
+    // If subject is not provided, use the category as the subject
+    // This is useful when customers only select a category from dropdown
+    if (!subject || subject.trim().length === 0) {
+      subject = ticketCategory;
+    }
+
+    // Validation
+    if (!name || !email || !description) {
+      return res.status(400).json({
+        success: false,
+        message: "Description is required",
+      });
     }
 
     // Create the ticket
@@ -31,7 +48,7 @@ exports.createTicket = async (req, res) => {
       email,
       subject,
       description,
-      category: category || "General Inquiry",
+      category: ticketCategory,
       priority: priority || "Medium",
       user,
       userModel,

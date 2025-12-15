@@ -21,7 +21,12 @@
       "Bash(netstat:*)",
       "Bash(git merge:*)",
       "Bash(git pull:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(timeout /t 5)",
+      "Bash(curl:*)",
+      "Bash(node -e \"try { const routes = require(''./src/routes/support''); console.log(''Support routes loaded successfully:'', routes); } catch(e) { console.error(''Error loading support routes:'', e.message); }\")",
+      "Bash(node -e:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
