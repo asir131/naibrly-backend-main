@@ -11,8 +11,12 @@ const hasCloudinaryConfig =
   process.env.CLOUDINARY_API_KEY &&
   process.env.CLOUDINARY_API_SECRET;
 
-// Configure Cloudinary only when creds present
-if (hasCloudinaryConfig) {
+// Allow disabling uploads (useful for offline/dev/testing)
+const uploadsEnabled =
+  hasCloudinaryConfig && process.env.SKIP_UPLOADS !== "true";
+
+// Configure Cloudinary only when creds present and uploads enabled
+if (uploadsEnabled) {
   cloudinary.v2.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
@@ -35,8 +39,8 @@ const sanitizePublicId = (str) => {
 
 // Universal storage configuration for all images
 const createCloudinaryStorage = (folder) => {
-  if (!hasCloudinaryConfig) {
-    // fallback to memory storage when cloudinary is not configured
+  if (!uploadsEnabled) {
+    // fallback to memory storage when cloudinary is not configured or uploads disabled
     return multer.memoryStorage();
   }
 
@@ -127,7 +131,7 @@ const deleteDocumentFromCloudinary = async (publicId) => {
 };
 
 // Verification Storage Configuration with enhanced sanitization
-const verificationStorage = hasCloudinaryConfig
+const verificationStorage = uploadsEnabled
   ? new CloudinaryStorage({
       cloudinary: cloudinary,
       params: {
@@ -142,10 +146,18 @@ const verificationStorage = hasCloudinaryConfig
 const uploadVerificationDocuments = multer({
   storage: verificationStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB per file
+    fileSize: 10 * 1024 * 1024, // 10MB per file
   },
   fileFilter: (req, file, cb) => {
-    const allowedFields = ["insuranceDocument", "idCardFront", "idCardBack"];
+    // Accept primary field names plus common aliases; allow any name if type is valid to be resilient
+    const allowedFields = [
+      "insuranceDocument",
+      "insuranceFile",
+      "idCardFront",
+      "idFront",
+      "idCardBack",
+      "idBack",
+    ];
     const allowedMimeTypes = [
       "image/jpeg",
       "image/png",
@@ -153,30 +165,29 @@ const uploadVerificationDocuments = multer({
       "application/pdf",
     ];
 
-    console.log("📁 File upload check:", {
+    const isAllowedField = allowedFields.includes(file.fieldname);
+    const isAllowedType = allowedMimeTypes.includes(file.mimetype);
+
+    console.log("[verify upload] File check:", {
       fieldname: file.fieldname,
       mimetype: file.mimetype,
-      isAllowedField: allowedFields.includes(file.fieldname),
-      isAllowedMimeType: allowedMimeTypes.includes(file.mimetype),
+      isAllowedField,
+      isAllowedType,
     });
 
-    if (
-      allowedFields.includes(file.fieldname) &&
-      allowedMimeTypes.includes(file.mimetype)
-    ) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          `Invalid file type or field name. Field: ${file.fieldname}, Type: ${
-            file.mimetype
-          }. Allowed fields: ${allowedFields.join(
-            ", "
-          )}. Allowed types: ${allowedMimeTypes.join(", ")}`
-        ),
-        false
-      );
+    // If mimetype is acceptable, let it through even if the field name is unexpected
+    if (isAllowedType) {
+      return cb(null, true);
     }
+
+    return cb(
+      new Error(
+        `Invalid file type or field name. Field: ${file.fieldname}, Type: ${file.mimetype}. Allowed types: ${allowedMimeTypes.join(
+          ", "
+        )}`
+      ),
+      false
+    );
   },
 });
 
@@ -186,7 +197,7 @@ const handleMulterError = (error, req, res, next) => {
     if (error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         success: false,
-        message: "File too large. Maximum size is 5MB per file.",
+        message: "File too large. Maximum size is 10MB per file.",
       });
     }
     if (error.code === "LIMIT_UNEXPECTED_FILE") {
@@ -197,7 +208,7 @@ const handleMulterError = (error, req, res, next) => {
     }
   }
 
-  if (error.message) {
+  if (error && error.message) {
     return res.status(400).json({
       success: false,
       message: error.message,
@@ -210,6 +221,7 @@ const handleMulterError = (error, req, res, next) => {
 module.exports = {
   cloudinary,
   hasCloudinaryConfig,
+  uploadsEnabled,
   uploadProfileImage,
   uploadBusinessLogo,
   uploadInsuranceDocument,

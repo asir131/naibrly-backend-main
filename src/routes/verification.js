@@ -1,7 +1,7 @@
 const express = require("express");
 const { auth } = require("../middleware/auth");
 const { adminAuth } = require("../middleware/adminAuth");
-const { uploadVerificationDocuments } = require("../config/cloudinary");
+const { uploadVerificationDocuments, handleMulterError } = require("../config/cloudinary");
 const {
   submitVerification,
   getVerificationStatus,
@@ -23,6 +23,7 @@ router.post(
     { name: "idCardFront", maxCount: 1 },
     { name: "idCardBack", maxCount: 1 },
   ]),
+  handleMulterError,
   submitVerification
 );
 

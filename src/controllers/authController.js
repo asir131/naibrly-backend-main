@@ -15,9 +15,13 @@ const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
 };
 
-// Upload buffer to Cloudinary
-const uploadToCloudinary = async (buffer, folder, filename) => {
+// Upload buffer to Cloudinary with a hard timeout so requests don't hang forever
+const uploadToCloudinary = async (buffer, folder, filename, timeoutMs = 20000) => {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Cloudinary upload timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,
@@ -25,14 +29,14 @@ const uploadToCloudinary = async (buffer, folder, filename) => {
         resource_type: "image",
       },
       (error, result) => {
+        clearTimeout(timer);
         if (error) reject(error);
         else resolve(result);
       }
     );
 
     const { Readable } = require("stream");
-    const stream = Readable.from(buffer);
-    stream.pipe(uploadStream);
+    Readable.from(buffer).pipe(uploadStream);
   });
 };
 
@@ -100,33 +104,41 @@ const registerCustomer = async (req, res) => {
       });
     }
 
-    // Handle image upload from memory buffer
+    // Handle image upload (supports direct Cloudinary storage or memory buffer)
     let profileImageData = { url: "", publicId: "" };
     if (req.file) {
-      console.log("Processing uploaded file for customer from memory buffer");
-
-      try {
-        const timestamp = Date.now();
-        const randomString = Math.random().toString(36).substring(2, 15);
-        const publicId = `customer_profile_${timestamp}_${randomString}`;
-
-        const result = await uploadToCloudinary(
-          req.file.buffer,
-          "naibrly/profiles",
-          publicId
-        );
-
+      // If using Cloudinary storage middleware, the file already has path/filename
+      if (req.file.path || req.file.secure_url) {
         profileImageData = {
-          url: result.secure_url,
-          publicId: result.public_id,
+          url: req.file.path || req.file.secure_url,
+          publicId: req.file.filename || req.file.public_id || "",
         };
-        console.log("Profile image uploaded to Cloudinary:", profileImageData);
-      } catch (uploadError) {
-        console.error(
-          "Cloudinary upload error for customer profile:",
-          uploadError
-        );
-        // Continue without image if upload fails
+        console.log("Profile image received from Cloudinary storage:", profileImageData);
+      } else if (req.file.buffer) {
+        console.log("Processing uploaded file for customer from memory buffer");
+        try {
+          const timestamp = Date.now();
+          const randomString = Math.random().toString(36).substring(2, 15);
+          const publicId = `customer_profile_${timestamp}_${randomString}`;
+
+          const result = await uploadToCloudinary(
+            req.file.buffer,
+            "naibrly/profiles",
+            publicId
+          );
+
+          profileImageData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+          console.log("Profile image uploaded to Cloudinary:", profileImageData);
+        } catch (uploadError) {
+          console.error(
+            "Cloudinary upload error for customer profile:",
+            uploadError
+          );
+          // Continue without image if upload fails
+        }
       }
     }
 
@@ -375,7 +387,18 @@ const registerProvider = async (req, res) => {
       // If outbound network is restricted, allow skipping Cloudinary to avoid timeouts
       let businessLogoData = { url: "", publicId: "" };
       const skipUploads = process.env.SKIP_UPLOADS === "true";
-      if (req.files && req.files["businessLogo"]) {
+
+      // If using Cloudinary storage via multer (preferred)
+      if (req.file || (req.files && req.files.businessLogo && req.files.businessLogo[0]?.path)) {
+        const logoFile = req.file || (req.files.businessLogo ? req.files.businessLogo[0] : null);
+        businessLogoData = {
+          url: logoFile.path || logoFile.secure_url || "",
+          publicId: logoFile.filename || logoFile.public_id || "",
+        };
+        console.log("Business logo received from Cloudinary storage:", businessLogoData);
+      }
+      // If using memory buffer (fallback path)
+      else if (req.files && req.files["businessLogo"]) {
         const businessLogo = req.files["businessLogo"][0];
         console.log("Processing business logo from memory buffer");
 

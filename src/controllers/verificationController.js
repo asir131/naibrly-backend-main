@@ -3,6 +3,76 @@ const ServiceProvider = require("../models/ServiceProvider");
 const PayoutInformation = require("../models/PayoutInformation");
 const { cloudinary, hasCloudinaryConfig } = require("../config/cloudinary");
 
+// Helper: upload buffer to Cloudinary with timeout, or pass through multer-stored path/publicId.
+// If Cloudinary is not configured or uploads are skipped, fall back to local metadata.
+const mapFileToAsset = async (file, folder, fallbackPrefix) => {
+  if (!file) return { url: "", publicId: "" };
+
+  // If Cloudinary creds are missing, do not attempt to upload
+  if (!hasCloudinaryConfig) {
+    return {
+      url: file.path || file.originalname || "",
+      publicId: file.filename || `${fallbackPrefix}_${Date.now()}`,
+    };
+  }
+
+  // If upload was already handled by Cloudinary storage (multer), use that
+  if (file.path || file.secure_url) {
+    return {
+      url: file.path || file.secure_url,
+      publicId: file.filename || file.public_id || "",
+    };
+  }
+
+  // Skip uploads when instructed (useful for restricted networks)
+  const skipUploads = process.env.SKIP_UPLOADS === "true";
+  if (skipUploads) {
+    return {
+      url: file.originalname || "",
+      publicId: `${fallbackPrefix}_${Date.now()}`,
+    };
+  }
+
+  // Upload from buffer with a hard timeout so the request doesn't hang
+  const uploadBuffer = (buffer, folderName, filename, timeoutMs = 20000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Cloudinary upload timed out after ${timeoutMs}ms`)),
+        timeoutMs
+      );
+
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: folderName,
+          public_id: filename,
+          resource_type: "auto",
+        },
+        (error, result) => {
+          clearTimeout(timer);
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+
+      const { Readable } = require("stream");
+      Readable.from(buffer).pipe(uploadStream);
+    });
+
+  if (file.buffer) {
+    const timestamp = Date.now();
+    const rand = Math.random().toString(36).substring(2, 8);
+    const publicId = `${fallbackPrefix}_${timestamp}_${rand}`;
+    const result = await uploadBuffer(file.buffer, folder, publicId);
+    return { url: result.secure_url, publicId: result.public_id };
+  }
+
+  // Fallback to originalname if nothing else is available
+  return {
+    url: file.originalname || "",
+    publicId: `${fallbackPrefix}_${Date.now()}`,
+  };
+};
+
 exports.submitVerification = async (req, res) => {
   try {
     console.log("[verify] Starting verification submission...");
@@ -73,16 +143,6 @@ exports.submitVerification = async (req, res) => {
 
     console.log("Provider found:", provider.businessNameRegistered);
 
-    // Check if provider is approved
-    if (!provider.isApproved && provider.approvalStatus !== "approved") {
-      console.log("Provider not approved");
-      return res.status(400).json({
-        success: false,
-        message:
-          "Your provider account needs to be approved first before submitting verification",
-      });
-    }
-
     // Check if verification already exists and is pending
     const existingVerification = await Verification.findOne({
       provider: req.user._id,
@@ -99,6 +159,13 @@ exports.submitVerification = async (req, res) => {
 
     console.log("Creating new verification record...");
 
+    // Upload/resolve documents
+    const [insuranceAsset, idFrontAsset, idBackAsset] = await Promise.all([
+      mapFileToAsset(insuranceDocument, "naibrly/verifications", "insurance"),
+      mapFileToAsset(idCardFront, "naibrly/verifications", "id_front"),
+      mapFileToAsset(idCardBack, "naibrly/verifications", "id_back"),
+    ]);
+
     // Create verification record with all documents
     const verification = new Verification({
       provider: req.user._id,
@@ -106,39 +173,9 @@ exports.submitVerification = async (req, res) => {
       firstName,
       lastName,
       businessRegisteredCountry,
-      insuranceDocument: {
-        url:
-          insuranceDocument.path ||
-          insuranceDocument.filename ||
-          insuranceDocument.originalname ||
-          "",
-        publicId:
-          insuranceDocument.filename ||
-          insuranceDocument.originalname ||
-          `insurance_${Date.now()}`,
-      },
-      idCardFront: {
-        url:
-          idCardFront.path ||
-          idCardFront.filename ||
-          idCardFront.originalname ||
-          "",
-        publicId:
-          idCardFront.filename ||
-          idCardFront.originalname ||
-          `id_front_${Date.now()}`,
-      },
-      idCardBack: {
-        url:
-          idCardBack.path ||
-          idCardBack.filename ||
-          idCardBack.originalname ||
-          "",
-        publicId:
-          idCardBack.filename ||
-          idCardBack.originalname ||
-          `id_back_${Date.now()}`,
-      },
+      insuranceDocument: insuranceAsset,
+      idCardFront: idFrontAsset,
+      idCardBack: idBackAsset,
     });
 
     console.log("Saving verification to database...");
@@ -208,7 +245,7 @@ exports.submitVerification = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to submit verification information",
+      message: error.message || "Failed to submit verification information",
       error:
         process.env.NODE_ENV === "development"
           ? {
