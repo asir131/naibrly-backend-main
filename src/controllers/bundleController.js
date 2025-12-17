@@ -181,9 +181,12 @@ exports.createBundle = async (req, res) => {
     await bundle.save();
 
     // Generate shareable link and QR code
-    // Use backend URL so it's a direct API join endpoint
-    const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:5000";
-    const shareLink = `${apiBaseUrl}/api/bundles/share/${bundle.shareToken}`;
+    // Use frontend URL so customers land on the join-bundle page (will redirect to login if needed)
+    const frontendBaseUrl =
+      process.env.FRONTEND_URL ||
+      process.env.CLIENT_URL ||
+      "http://localhost:3000";
+    const shareLink = `${frontendBaseUrl}/join-bundle/${bundle.shareToken}`;
 
     let qrCodeDataUrl;
     try {
