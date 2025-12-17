@@ -123,7 +123,7 @@ const corsOptions = {
     "http://localhost:5173", // Vite frontend
     process.env.CLIENT_URL, // For production
     process.env.FRONTEND_URL, // Admin dashboard
-    "https://naibrly-front-main-dgkr.vercel.app", // Vercel user frontend
+    "https://naibrly-front-main.vercel.app", // Vercel user frontend
     "https://naibrly-dashboard.vercel.app", // Vercel admin dashboard
   ],
   credentials: true,
