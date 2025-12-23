@@ -1297,7 +1297,9 @@ exports.getMyPayoutInformation = async (req, res) => {
     const providerId = req.user._id;
 
     const [provider, payoutInfo] = await Promise.all([
-      ServiceProvider.findById(providerId).select("hasPayoutSetup isVerified"),
+      ServiceProvider.findById(providerId).select(
+        "hasPayoutSetup isVerified payoutInformation"
+      ),
       PayoutInformation.findOne({
         provider: providerId,
         isActive: true,
@@ -1310,20 +1312,14 @@ exports.getMyPayoutInformation = async (req, res) => {
         .json({ success: false, message: "Provider not found" });
     }
 
-    if (!provider.isVerified) {
-      return res.status(403).json({
-        success: false,
-        message: "Provider verification required before viewing payout information",
-      });
-    }
-
     if (!payoutInfo) {
-      return res.status(404).json({
-        success: false,
-        message: "No payout information found",
+      const fallbackPayout = provider.payoutInformation || null;
+      return res.status(fallbackPayout ? 200 : 404).json({
+        success: Boolean(fallbackPayout),
+        message: fallbackPayout ? "Payout information retrieved" : "No payout information found",
         data: {
           hasPayoutSetup: provider.hasPayoutSetup || false,
-          payoutInformation: null,
+          payoutInformation: fallbackPayout,
         },
       });
     }

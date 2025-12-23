@@ -85,6 +85,52 @@ const serviceProviderSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    payoutInformation: {
+      accountHolderName: {
+        type: String,
+        default: "",
+      },
+      bankName: {
+        type: String,
+        default: "",
+      },
+      bankCode: {
+        type: String,
+        default: "",
+      },
+      accountNumber: {
+        type: String,
+        default: "",
+      },
+      routingNumber: {
+        type: String,
+        default: "",
+      },
+      accountType: {
+        type: String,
+        enum: ["checking", "savings", ""],
+        default: "",
+      },
+      lastFourDigits: {
+        type: String,
+        default: "",
+      },
+      verificationStatus: {
+        type: String,
+        default: "pending",
+      },
+      isVerified: {
+        type: Boolean,
+        default: false,
+      },
+      isActive: {
+        type: Boolean,
+        default: false,
+      },
+      updatedAt: {
+        type: Date,
+      },
+    },
     // NEW: Multiple service areas
     serviceAreas: [
       {

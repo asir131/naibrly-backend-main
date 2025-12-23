@@ -143,6 +143,13 @@ exports.submitVerification = async (req, res) => {
 
     console.log("Provider found:", provider.businessNameRegistered);
 
+    if (!provider.firstName && firstName) {
+      provider.firstName = firstName.trim();
+    }
+    if (!provider.lastName && lastName) {
+      provider.lastName = lastName.trim();
+    }
+
     // Check if verification already exists and is pending
     const existingVerification = await Verification.findOne({
       provider: req.user._id,

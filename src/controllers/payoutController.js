@@ -34,15 +34,6 @@ exports.savePayoutInformation = async (req, res) => {
         ? accountType
         : "checking";
 
-    // Validate routing number format (9 digits)
-    const routingNumberRegex = /^\d{9}$/;
-    if (!routingNumberRegex.test(routingNumber)) {
-      return res.status(400).json({
-        success: false,
-        message: "Routing number must be exactly 9 digits",
-      });
-    }
-
     // Validate account number (basic validation)
     if (accountNumber.length < 4) {
       return res.status(400).json({
@@ -50,26 +41,6 @@ exports.savePayoutInformation = async (req, res) => {
       message: "Account number must be at least 4 digits",
     });
   }
-
-    // Verify bank exists by name (predefined list)
-    const bank = await Bank.findOne({
-      name: { $regex: new RegExp(`^${bankName}$`, "i") },
-      isActive: true,
-    });
-    if (!bank) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid bank selected",
-      });
-    }
-
-    // Ensure provided routing matches predefined bank routing number
-    if (bank.routingNumber !== routingNumber) {
-      return res.status(400).json({
-        success: false,
-        message: "Routing number does not match the selected bank",
-      });
-    }
 
     // Get provider
     const provider = await ServiceProvider.findById(providerId);
@@ -89,7 +60,7 @@ exports.savePayoutInformation = async (req, res) => {
       {
         accountHolderName: accountHolderName.trim(),
         bankName: bankName.trim(),
-        bankCode: bank.code,
+        bankCode: req.body.bankCode || "",
       accountNumber: accountNumber, // In production, encrypt this field
       routingNumber: routingNumber,
         accountType: resolvedAccountType,
@@ -105,8 +76,21 @@ exports.savePayoutInformation = async (req, res) => {
       }
     );
 
-    // Update provider's payout setup status
+    // Update provider's payout setup status and mirror payout info on provider
     provider.hasPayoutSetup = true;
+    provider.payoutInformation = {
+      accountHolderName: accountHolderName.trim(),
+      bankName: bankName.trim(),
+      bankCode: req.body.bankCode || "",
+      accountNumber: accountNumber,
+      routingNumber: routingNumber,
+      accountType: resolvedAccountType,
+      lastFourDigits: lastFourDigits,
+      verificationStatus: "pending",
+      isVerified: false,
+      isActive: true,
+      updatedAt: new Date(),
+    };
     await provider.save();
 
     // Return response with masked account number
@@ -177,35 +161,10 @@ exports.updatePayoutInformation = async (req, res) => {
       });
     }
 
-    const routingNumberRegex = /^\d{9}$/;
-    if (!routingNumberRegex.test(routingNumber)) {
-      return res.status(400).json({
-        success: false,
-        message: "Routing number must be exactly 9 digits",
-      });
-    }
-
     if (accountNumber.length < 4) {
       return res.status(400).json({
         success: false,
         message: "Account number must be at least 4 digits",
-      });
-    }
-
-    const bank = await Bank.findOne({
-      name: { $regex: new RegExp(`^${bankName}$`, "i") },
-      isActive: true,
-    });
-    if (!bank) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid bank selected",
-      });
-    }
-    if (bank.routingNumber !== routingNumber) {
-      return res.status(400).json({
-        success: false,
-        message: "Routing number does not match the selected bank",
       });
     }
 
@@ -228,8 +187,8 @@ exports.updatePayoutInformation = async (req, res) => {
         : payoutInfo.accountType || "checking";
 
     payoutInfo.accountHolderName = accountHolderName.trim();
-    payoutInfo.bankName = bank.name;
-    payoutInfo.bankCode = bank.code;
+    payoutInfo.bankName = bankName.trim();
+    payoutInfo.bankCode = req.body.bankCode || payoutInfo.bankCode || "";
     payoutInfo.accountNumber = accountNumber;
     payoutInfo.routingNumber = routingNumber;
     payoutInfo.accountType = resolvedAccountType;
@@ -257,8 +216,21 @@ exports.updatePayoutInformation = async (req, res) => {
       await latestVerification.save();
     }
 
-    await provider.save();
+    provider.payoutInformation = {
+      accountHolderName: payoutInfo.accountHolderName,
+      bankName: payoutInfo.bankName,
+      bankCode: payoutInfo.bankCode,
+      accountNumber: payoutInfo.accountNumber,
+      routingNumber: payoutInfo.routingNumber,
+      accountType: payoutInfo.accountType,
+      lastFourDigits: payoutInfo.lastFourDigits,
+      verificationStatus: payoutInfo.verificationStatus,
+      isVerified: payoutInfo.isVerified,
+      isActive: payoutInfo.isActive,
+      updatedAt: new Date(),
+    };
 
+    await provider.save();
     await payoutInfo.save();
 
     res.json({
@@ -342,9 +314,10 @@ exports.deletePayoutInformation = async (req, res) => {
       });
     }
 
-    // Update provider's payout setup status
+    // Update provider's payout setup status and clear mirrored payout info
     await ServiceProvider.findByIdAndUpdate(providerId, {
       hasPayoutSetup: false,
+      payoutInformation: null,
     });
 
     res.json({
