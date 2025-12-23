@@ -253,6 +253,33 @@ const getAllCategories = async (req, res) => {
 // Get all services for service provider enum
 const getAllServices = async (req, res) => {
   try {
+    const user = req.user || {};
+    const role = (user.role || "").toLowerCase();
+    const zipCode =
+      role === "provider"
+        ? user.businessAddress?.zipCode || ""
+        : user.address?.zipCode || "";
+
+    const providerServiceMap = {};
+    if (zipCode && role === "customer") {
+      const ServiceProvider = require("../models/ServiceProvider");
+      const providers = await ServiceProvider.find({
+        "serviceAreas.zipCode": zipCode,
+        "serviceAreas.isActive": true,
+        isActive: true,
+      }).select("_id servicesProvided");
+
+      providers.forEach((provider) => {
+        (provider.servicesProvided || []).forEach((service) => {
+          const name = service?.name;
+          if (!name) return;
+          if (!providerServiceMap[name]) {
+            providerServiceMap[name] = [];
+          }
+          providerServiceMap[name].push(provider._id.toString());
+        });
+      });
+    }
     const services = await Service.find({ isActive: true })
       .sort({ name: 1 })
       .populate({
@@ -262,9 +289,37 @@ const getAllServices = async (req, res) => {
         },
       });
 
+    const sanitizedServices = services.map((service) => {
+      const serviceObj = service.toObject();
+      delete serviceObj.image;
+
+      if (serviceObj.categoryType) {
+        const ct = serviceObj.categoryType;
+        const ctImage = ct.image || {};
+        serviceObj.categoryType = {
+          ...ct,
+          image: {
+            url: ctImage.url || "",
+            publicId: ctImage.publicId || "",
+          },
+        };
+
+        if (serviceObj.categoryType.category) {
+          const categoryObj = serviceObj.categoryType.category;
+          delete categoryObj.image;
+        }
+      }
+
+      const providerIds = providerServiceMap[serviceObj.name] || [];
+      return {
+        ...serviceObj,
+        providers: providerIds,
+      };
+    });
+
     res.json({
       success: true,
-      data: { services },
+      data: { services: sanitizedServices, zipCode },
     });
   } catch (error) {
     console.error("Get services error:", error);

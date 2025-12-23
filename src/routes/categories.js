@@ -17,8 +17,8 @@ const { auth, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Public routes
-router.get("/services", getAllServices);
+// Authenticated routes (all users)
+router.get("/services", auth, getAllServices);
 router.get("/services/search", searchServices);
 router.get("/search", searchCategories);
 
