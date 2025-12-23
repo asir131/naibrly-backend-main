@@ -13,12 +13,12 @@ const {
   deleteService,
 } = require("../controllers/categoryController");
 const { uploadCategoryTypeImage } = require("../config/categoryCloudinary");
-const { auth, authorize } = require("../middleware/auth");
+const { auth, authorize, optionalAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Authenticated routes (all users)
-router.get("/services", auth, getAllServices);
+// Public route with optional auth
+router.get("/services", optionalAuth, getAllServices);
 router.get("/services/search", searchServices);
 router.get("/search", searchCategories);
 

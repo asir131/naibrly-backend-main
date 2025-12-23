@@ -17,9 +17,14 @@ const initializeDefaultData = async () => {
         order: 3,
       },
       {
+        name: "House Painter",
+        description: "House painting services",
+        order: 4,
+      },
+      {
         name: "Additional Resources",
         description: "Extra resources and services",
-        order: 4,
+        order: 5,
       },
     ];
 
@@ -53,6 +58,8 @@ const initializeDefaultData = async () => {
         services: [
           "House Cleaning",
           "Carpet Cleaning",
+          "Deep Cleaning",
+          "Standard Cleaning",
           "Upholstery Cleaning",
           "Home Organization",
           "All Furniture Cleaning",
@@ -68,8 +75,8 @@ const initializeDefaultData = async () => {
         services: [
           "General Contracting",
           "Carpenters",
-          "Bathroom Remodeling",
-          "Kitchen Remodeling",
+          "Bathroom Remodel",
+          "Kitchen Remodel",
           "Flooring Installation",
           "Carpet Installation",
           "Basement Remodeling",
@@ -79,7 +86,7 @@ const initializeDefaultData = async () => {
         category: "Exterior",
         type: "Exterior Home Care",
         services: [
-          "Roofing",
+          "Roof Cleaning",
           "Window Washing",
           "Chimney Sweeps",
           "Gutter Cleaning",
@@ -92,9 +99,10 @@ const initializeDefaultData = async () => {
         category: "Exterior",
         type: "Landscaping & Outdoor Services",
         services: [
-          "Lawn Care",
+          "Lawn Mowing",
           "Landscaping Design",
           "Gardening",
+          "Hedge Trimming",
           "Sprinkler System Repairs",
           "Artificial Turf Installation",
           "Stump Grinding",
@@ -106,8 +114,8 @@ const initializeDefaultData = async () => {
         category: "More Services",
         type: "Moving",
         services: [
-          "Local Movers",
-          "Long Distance Movers",
+          "Local Moving",
+          "Long Distance",
           "Piano Movers",
           "Packing & Unpacking",
           "Move In & Move Out Cleaning",
@@ -127,6 +135,16 @@ const initializeDefaultData = async () => {
           "Generator Installation",
           "Furniture Assembly",
         ],
+      },
+      {
+        category: "House Painter",
+        type: "Interior Painting",
+        services: ["Walls", "Ceilings"],
+      },
+      {
+        category: "House Painter",
+        type: "Exterior Painting",
+        services: ["Walls", "Fences"],
       },
     ];
 
@@ -162,7 +180,6 @@ const initializeDefaultData = async () => {
       for (const serviceName of data.services) {
         let service = await Service.findOne({
           name: serviceName,
-          categoryType: categoryType._id,
         });
 
         if (!service) {
@@ -173,6 +190,9 @@ const initializeDefaultData = async () => {
           });
           await service.save();
           totalServicesCreated++;
+        } else if (!service.categoryType) {
+          service.categoryType = categoryType._id;
+          await service.save();
         }
       }
     }
@@ -367,8 +387,7 @@ const searchServices = async (req, res) => {
         searchRegex.test(service.description || "");
       const matchesCategoryType =
         categoryType && searchRegex.test(categoryType.name || "");
-      const matchesCategory =
-        category && searchRegex.test(category.name || "");
+      const matchesCategory = category && searchRegex.test(category.name || "");
 
       return matchesService || matchesCategoryType || matchesCategory;
     });

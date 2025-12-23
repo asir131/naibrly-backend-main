@@ -228,8 +228,9 @@ const registerProvider = async (req, res) => {
       email,
       password,
       phone,
+      firstName,
+      lastName,
       businessNameRegistered,
-      businessNameDBA,
       providerRole,
       businessAddressStreet,
       businessAddressCity,
@@ -452,10 +453,11 @@ const registerProvider = async (req, res) => {
       email: email.toLowerCase().trim(),
       password,
       phone: phone.trim(),
+      firstName: firstName ? firstName.trim() : "",
+      lastName: lastName ? lastName.trim() : "",
       profileImage: { url: "", publicId: "" }, // Empty profile image
       businessLogo: businessLogoData,
       businessNameRegistered: businessNameRegistered.trim(),
-      businessNameDBA: businessNameDBA ? businessNameDBA.trim() : "",
       providerRole,
       businessAddress:
         Object.keys(businessAddress).length > 0 ? businessAddress : undefined,

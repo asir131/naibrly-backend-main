@@ -1331,9 +1331,33 @@ exports.getNearbyServicesByZip = async (req, res) => {
         ? [{ $match: { "servicesProvided.name": { $regex: nameRegex } } }]
         : []),
       {
+        $lookup: {
+          from: "services",
+          localField: "servicesProvided.name",
+          foreignField: "name",
+          as: "serviceDoc",
+        },
+      },
+      { $unwind: { path: "$serviceDoc", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "categorytypes",
+          localField: "serviceDoc.categoryType",
+          foreignField: "_id",
+          as: "categoryTypeDoc",
+        },
+      },
+      {
+        $unwind: {
+          path: "$categoryTypeDoc",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
         $project: {
           providerId: "$_id",
           service: "$servicesProvided",
+          categoryType: "$categoryTypeDoc",
           businessNameRegistered: 1,
           rating: 1,
           totalReviews: 1,
@@ -1369,6 +1393,14 @@ exports.getNearbyServicesByZip = async (req, res) => {
       serviceName: doc.service?.name,
       hourlyRate: doc.service?.hourlyRate ?? null,
       providerId: doc.providerId,
+      categoryType: doc.categoryType
+        ? {
+            image: {
+              url: doc.categoryType.image?.url || "",
+              publicId: doc.categoryType.image?.publicId || "",
+            },
+          }
+        : { image: { url: "", publicId: "" } },
     }));
 
     res.json({
