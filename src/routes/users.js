@@ -8,6 +8,7 @@ const {
   deleteBusinessLogo,
   // New service provider methods
   updateServiceProviderProfile,
+  updateProviderProfileApp,
   getProviderServices,
   addServiceToProvider,
   removeServiceFromProvider,
@@ -45,6 +46,18 @@ router.put(
     { name: "businessLogo", maxCount: 1 },
   ]),
   updateServiceProviderProfile
+);
+
+// Mobile app: provider profile update using registration-style fields
+router.put(
+  "/provider/app/update-profile",
+  auth,
+  authorize("provider"),
+  uploadProfileImage.fields([
+    { name: "profileImage", maxCount: 1 },
+    { name: "businessLogo", maxCount: 1 },
+  ]),
+  updateProviderProfileApp
 );
 
 // Get provider services

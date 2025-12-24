@@ -7,7 +7,33 @@ const PayoutInformation = require("../models/PayoutInformation");
 const Verification = require("../models/Verification");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const mongoose = require("mongoose");
-const { deleteImageFromCloudinary } = require("../config/cloudinary");
+const { cloudinary, deleteImageFromCloudinary } = require("../config/cloudinary");
+const { Readable } = require("stream");
+
+const uploadBufferToCloudinary = (buffer, folder, publicIdPrefix) => {
+  return new Promise((resolve, reject) => {
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 10);
+    const publicId = `${publicIdPrefix}_${timestamp}_${randomString}`;
+
+    const uploadStream = cloudinary.v2.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        resource_type: "image",
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(result);
+        }
+      }
+    );
+
+    Readable.from(buffer).pipe(uploadStream);
+  });
+};
 
 // Get user profile
 exports.getUserProfile = async (req, res) => {
@@ -193,11 +219,33 @@ exports.updateProfile = async (req, res) => {
         await deleteImageFromCloudinary(user.profileImage.publicId);
       }
 
-      // Update profile image for all user types
-      user.profileImage = {
-        url: profileImage.path,
-        publicId: profileImage.filename,
-      };
+      let profileImageData = null;
+
+      if (profileImage.path || profileImage.secure_url) {
+        profileImageData = {
+          url: profileImage.path || profileImage.secure_url,
+          publicId: profileImage.filename || profileImage.public_id || "",
+        };
+      } else if (profileImage.buffer) {
+        try {
+          const result = await uploadBufferToCloudinary(
+            profileImage.buffer,
+            "naibrly/profiles",
+            "profile"
+          );
+          profileImageData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+        } catch (uploadError) {
+          console.error("Profile image upload failed:", uploadError);
+        }
+      }
+
+      if (profileImageData) {
+        user.profileImage = profileImageData;
+        user.markModified("profileImage");
+      }
     }
 
     // Role-specific updates
@@ -263,11 +311,33 @@ exports.updateProfile = async (req, res) => {
           await deleteImageFromCloudinary(user.businessLogo.publicId);
         }
 
-        // Update business logo
-        user.businessLogo = {
-          url: businessLogo.path,
-          publicId: businessLogo.filename,
-        };
+        let businessLogoData = null;
+
+        if (businessLogo.path || businessLogo.secure_url) {
+          businessLogoData = {
+            url: businessLogo.path || businessLogo.secure_url,
+            publicId: businessLogo.filename || businessLogo.public_id || "",
+          };
+        } else if (businessLogo.buffer) {
+          try {
+            const result = await uploadBufferToCloudinary(
+              businessLogo.buffer,
+              "naibrly/business-logos",
+              "business_logo"
+            );
+            businessLogoData = {
+              url: result.secure_url,
+              publicId: result.public_id,
+            };
+          } catch (uploadError) {
+            console.error("Business logo upload failed:", uploadError);
+          }
+        }
+
+        if (businessLogoData) {
+          user.businessLogo = businessLogoData;
+          user.markModified("businessLogo");
+        }
       }
 
       // Update services with hourly rates
@@ -473,11 +543,33 @@ exports.updateServiceProviderProfile = async (req, res) => {
         await deleteImageFromCloudinary(provider.profileImage.publicId);
       }
 
-      // Update profile image
-      provider.profileImage = {
-        url: profileImage.path,
-        publicId: profileImage.filename,
-      };
+      let profileImageData = null;
+
+      if (profileImage.path || profileImage.secure_url) {
+        profileImageData = {
+          url: profileImage.path || profileImage.secure_url,
+          publicId: profileImage.filename || profileImage.public_id || "",
+        };
+      } else if (profileImage.buffer) {
+        try {
+          const result = await uploadBufferToCloudinary(
+            profileImage.buffer,
+            "naibrly/profiles",
+            "profile"
+          );
+          profileImageData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+        } catch (uploadError) {
+          console.error("Profile image upload failed:", uploadError);
+        }
+      }
+
+      if (profileImageData) {
+        provider.profileImage = profileImageData;
+        provider.markModified("profileImage");
+      }
     }
 
     // Handle business logo upload
@@ -489,11 +581,33 @@ exports.updateServiceProviderProfile = async (req, res) => {
         await deleteImageFromCloudinary(provider.businessLogo.publicId);
       }
 
-      // Update business logo
-      provider.businessLogo = {
-        url: businessLogo.path,
-        publicId: businessLogo.filename,
-      };
+      let businessLogoData = null;
+
+      if (businessLogo.path || businessLogo.secure_url) {
+        businessLogoData = {
+          url: businessLogo.path || businessLogo.secure_url,
+          publicId: businessLogo.filename || businessLogo.public_id || "",
+        };
+      } else if (businessLogo.buffer) {
+        try {
+          const result = await uploadBufferToCloudinary(
+            businessLogo.buffer,
+            "naibrly/business-logos",
+            "business_logo"
+          );
+          businessLogoData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+        } catch (uploadError) {
+          console.error("Business logo upload failed:", uploadError);
+        }
+      }
+
+      if (businessLogoData) {
+        provider.businessLogo = businessLogoData;
+        provider.markModified("businessLogo");
+      }
     }
 
     // ADVANCED SERVICE MANAGEMENT
@@ -710,6 +824,265 @@ exports.updateServiceProviderProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("Update service provider profile error:", error);
+
+    if (error.name === "ValidationError") {
+      const errors = Object.values(error.errors).map((err) => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: errors,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Profile update failed",
+      error: error.message,
+    });
+  }
+};
+
+// Mobile app: update provider profile using registration-style fields
+exports.updateProviderProfileApp = async (req, res) => {
+  try {
+    const {
+      phone,
+      firstName,
+      lastName,
+      businessNameRegistered,
+      businessServiceStart,
+      businessServiceEnd,
+      businessHoursStart,
+      businessHoursEnd,
+      servicesProvidedName,
+      servicesProvidedHourlyRate,
+      removeService,
+    } = req.body;
+
+    const provider = await ServiceProvider.findById(req.user._id);
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: "Service provider not found",
+      });
+    }
+
+    // Basic info
+    if (firstName) provider.firstName = firstName.trim();
+    if (lastName) provider.lastName = lastName.trim();
+    if (phone) provider.phone = phone.trim();
+
+    // Business info
+    if (businessNameRegistered)
+      provider.businessNameRegistered = businessNameRegistered.trim();
+
+    // Business service days and hours
+    if (businessServiceStart)
+      provider.businessServiceDays.start = businessServiceStart;
+    if (businessServiceEnd)
+      provider.businessServiceDays.end = businessServiceEnd;
+    if (businessHoursStart) provider.businessHours.start = businessHoursStart;
+    if (businessHoursEnd) provider.businessHours.end = businessHoursEnd;
+
+    // Optional profile image upload
+    if (req.files && req.files["profileImage"]) {
+      const profileImage = req.files["profileImage"][0];
+
+      if (provider.profileImage && provider.profileImage.publicId) {
+        await deleteImageFromCloudinary(provider.profileImage.publicId);
+      }
+
+      let profileImageData = null;
+
+      if (profileImage.path || profileImage.secure_url) {
+        profileImageData = {
+          url: profileImage.path || profileImage.secure_url,
+          publicId: profileImage.filename || profileImage.public_id || "",
+        };
+      } else if (profileImage.buffer) {
+        try {
+          const result = await uploadBufferToCloudinary(
+            profileImage.buffer,
+            "naibrly/profiles",
+            "profile"
+          );
+          profileImageData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+        } catch (uploadError) {
+          console.error("Profile image upload failed:", uploadError);
+        }
+      }
+
+      if (profileImageData) {
+        provider.profileImage = profileImageData;
+        provider.markModified("profileImage");
+      }
+    }
+
+    // Optional business logo upload
+    if (req.files && req.files["businessLogo"]) {
+      const businessLogo = req.files["businessLogo"][0];
+
+      if (provider.businessLogo && provider.businessLogo.publicId) {
+        await deleteImageFromCloudinary(provider.businessLogo.publicId);
+      }
+
+      let businessLogoData = null;
+
+      if (businessLogo.path || businessLogo.secure_url) {
+        businessLogoData = {
+          url: businessLogo.path || businessLogo.secure_url,
+          publicId: businessLogo.filename || businessLogo.public_id || "",
+        };
+      } else if (businessLogo.buffer) {
+        try {
+          const result = await uploadBufferToCloudinary(
+            businessLogo.buffer,
+            "naibrly/business-logos",
+            "business_logo"
+          );
+          businessLogoData = {
+            url: result.secure_url,
+            publicId: result.public_id,
+          };
+        } catch (uploadError) {
+          console.error("Business logo upload failed:", uploadError);
+        }
+      }
+
+      if (businessLogoData) {
+        provider.businessLogo = businessLogoData;
+        provider.markModified("businessLogo");
+      }
+    }
+
+    // Normalize current services
+    let updatedServices = Array.isArray(provider.servicesProvided)
+      ? [...provider.servicesProvided]
+      : [];
+
+    // Remove services (single string, CSV, or array)
+    if (removeService) {
+      let removeList = [];
+      if (Array.isArray(removeService)) {
+        removeList = removeService;
+      } else if (typeof removeService === "string") {
+        try {
+          const parsed = JSON.parse(removeService);
+          removeList = Array.isArray(parsed)
+            ? parsed
+            : removeService.split(",").map((s) => s.trim());
+        } catch (error) {
+          removeList = removeService.split(",").map((s) => s.trim());
+        }
+      }
+
+      const removeSet = new Set(
+        removeList.filter((name) => name && name.trim())
+      );
+      updatedServices = updatedServices.filter(
+        (service) => !removeSet.has(service.name)
+      );
+    }
+
+    // Parse incoming services (registration-style fields)
+    let serviceNames = [];
+    let serviceRates = [];
+
+    if (servicesProvidedName) {
+      serviceNames = Array.isArray(servicesProvidedName)
+        ? servicesProvidedName
+        : [servicesProvidedName];
+    }
+
+    if (servicesProvidedHourlyRate) {
+      serviceRates = Array.isArray(servicesProvidedHourlyRate)
+        ? servicesProvidedHourlyRate
+        : [servicesProvidedHourlyRate];
+    }
+
+    const servicesToAdd = [];
+    for (let i = 0; i < serviceNames.length; i++) {
+      let serviceName = serviceNames[i];
+      let hourlyRate = serviceRates[i] ? parseFloat(serviceRates[i]) : 0;
+
+      if (Array.isArray(serviceName)) {
+        serviceName = serviceName[0];
+      }
+
+      if (
+        serviceName &&
+        typeof serviceName === "string" &&
+        serviceName.trim().length > 0
+      ) {
+        servicesToAdd.push({
+          name: serviceName.trim(),
+          hourlyRate,
+        });
+      }
+    }
+
+    if (servicesToAdd.length > 0) {
+      const addNames = servicesToAdd.map((s) => s.name);
+      const validServices = await Service.find({
+        name: { $in: addNames },
+        isActive: true,
+      });
+
+      if (validServices.length !== addNames.length) {
+        const validServiceNames = validServices.map((s) => s.name);
+        const missingServices = addNames.filter(
+          (name) => !validServiceNames.includes(name)
+        );
+
+        return res.status(400).json({
+          success: false,
+          message: `Invalid services: ${missingServices.join(
+            ", "
+          )}. Please provide valid service names.`,
+        });
+      }
+
+      const serviceMap = new Map(
+        updatedServices.map((service) => [service.name, service])
+      );
+
+      servicesToAdd.forEach((service) => {
+        serviceMap.set(service.name, {
+          name: service.name,
+          hourlyRate: service.hourlyRate || 0,
+        });
+      });
+
+      updatedServices = Array.from(serviceMap.values());
+    }
+
+    provider.servicesProvided = updatedServices;
+    provider.hourlyRate =
+      updatedServices.length > 0
+        ? updatedServices.reduce(
+            (sum, service) => sum + (service.hourlyRate || 0),
+            0
+          ) / updatedServices.length
+        : 0;
+
+    await provider.save();
+
+    const updatedProvider = await ServiceProvider.findById(req.user._id).select(
+      "-password"
+    );
+
+    res.json({
+      success: true,
+      message: "Provider profile updated successfully",
+      data: {
+        user: updatedProvider,
+      },
+    });
+  } catch (error) {
+    console.error("Update provider profile (app) error:", error);
 
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map((err) => err.message);
