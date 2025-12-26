@@ -234,7 +234,7 @@ exports.getNearbyBundles = async (req, res) => {
 
     // Get provider with service areas
     const provider = await ServiceProvider.findById(req.user._id).select(
-      "serviceAreas servicesProvided businessNameRegistered"
+      "serviceAreas servicesProvided businessNameRegistered businessAddress"
     );
     if (!provider) {
       return res.status(404).json({
@@ -246,9 +246,16 @@ exports.getNearbyBundles = async (req, res) => {
     console.log("🔍 Provider service areas:", provider.serviceAreas);
 
     // Get active service area ZIP codes
-    const activeServiceZips = provider.serviceAreas
-      .filter((area) => area.isActive)
+    let activeServiceZips = provider.serviceAreas
+      .filter((area) => area.isActive !== false)
       .map((area) => area.zipCode);
+
+    if (activeServiceZips.length === 0) {
+      const businessZip = provider.businessAddress?.zipCode?.trim();
+      if (businessZip) {
+        activeServiceZips = [businessZip];
+      }
+    }
 
     console.log("🔍 Active service ZIPs:", activeServiceZips);
 
@@ -274,13 +281,13 @@ exports.getNearbyBundles = async (req, res) => {
     console.log("🔍 Provider services:", providerServices);
 
     // Find bundles that match provider's service areas and services
-  const filter = {
-    zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
-    status: status,
-    $or: [
-      {
-        "services.name": {
-          $in: providerServices,
+    const filter = {
+      zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
+      status: status,
+      $or: [
+        {
+          "services.name": {
+            $in: providerServices,
           },
         },
         {

@@ -840,8 +840,10 @@ exports.updateBundleStatus = async (req, res) => {
       bundle.cancellationReason = cancellationReason || "No reason provided";
     }
 
-    // Update bundle status
-    bundle.status = status;
+    // Update bundle status (declined is provider-specific, keep bundle pending)
+    if (status !== "declined") {
+      bundle.status = status;
+    }
 
     // Add status history
     if (!bundle.statusHistory) {
