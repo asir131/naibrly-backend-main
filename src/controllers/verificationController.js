@@ -1,6 +1,8 @@
 const Verification = require("../models/Verification");
 const ServiceProvider = require("../models/ServiceProvider");
 const PayoutInformation = require("../models/PayoutInformation");
+const Admin = require("../models/Admin");
+const { sendNotification, sendNotificationToUsers } = require("../utils/notification");
 const { cloudinary, hasCloudinaryConfig } = require("../config/cloudinary");
 
 // Helper: upload buffer to Cloudinary with timeout, or pass through multer-stored path/publicId.
@@ -193,6 +195,14 @@ exports.submitVerification = async (req, res) => {
     provider.isVerified = false;
     await provider.save();
     console.log("Provider verification status updated");
+
+    const admins = await Admin.find().select("_id");
+    await sendNotificationToUsers({
+      userIds: admins.map((a) => a._id),
+      title: "Verification submitted",
+      body: `${provider.businessNameRegistered || "Provider"} submitted verification documents`,
+      link: "/admin/notifications",
+    });
 
     res.status(201).json({
       success: true,

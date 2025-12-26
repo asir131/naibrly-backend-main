@@ -9,6 +9,7 @@ const SupportTicket = require("../models/SupportTicket");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const jwt = require("jsonwebtoken");
 const { deleteImageFromCloudinary } = require("../config/cloudinary");
+const { sendNotification } = require("../utils/notification");
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -519,6 +520,13 @@ exports.approveProvider = async (req, res) => {
     }
 
     await provider.save();
+
+    await sendNotification({
+      userId: provider._id,
+      title: approved ? "Provider account approved" : "Provider account rejected",
+      body: approved ? "Your provider account was approved" : (reason || "Your provider account was rejected"),
+      link: "/provider/signup/analytics",
+    });
 
     res.json({
       success: true,

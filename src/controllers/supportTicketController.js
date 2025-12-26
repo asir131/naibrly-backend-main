@@ -1,6 +1,8 @@
 const SupportTicket = require("../models/SupportTicket");
 const Customer = require("../models/Customer");
 const ServiceProvider = require("../models/ServiceProvider");
+const Admin = require("../models/Admin");
+const { sendNotification, sendNotificationToUsers } = require("../utils/notification");
 
 // Create a new support ticket (Public - anyone can create)
 exports.createTicket = async (req, res) => {
@@ -56,6 +58,14 @@ exports.createTicket = async (req, res) => {
     });
 
     await ticket.save();
+
+    const admins = await Admin.find().select("_id");
+    await sendNotificationToUsers({
+      userIds: admins.map((a) => a._id),
+      title: "New support ticket",
+      body: subject || ticketCategory || "Support request",
+      link: "/admin/support",
+    });
 
     res.status(201).json({
       success: true,
@@ -258,6 +268,15 @@ exports.updateTicketStatus = async (req, res) => {
 
     await ticket.save();
 
+    if (ticket.user) {
+      await sendNotification({
+        userId: ticket.user,
+        title: "Support ticket status updated",
+        body: `Your ticket status is now ${status}`,
+        link: "/contact",
+      });
+    }
+
     res.json({
       success: true,
       message: "Ticket status updated successfully",
@@ -300,10 +319,36 @@ exports.updateTicket = async (req, res) => {
 
     await ticket.save();
 
+    if (isAdmin && ticket.user) {
+      await sendNotification({
+        userId: ticket.user,
+        title: "Support reply",
+        body: "An admin replied to your support ticket",
+        link: "/contact",
+      });
+    } else {
+      const admins = await Admin.find().select("_id");
+      await sendNotificationToUsers({
+        userIds: admins.map((a) => a._id),
+        title: "Support ticket reply",
+        body: `New reply on ticket ${ticket.ticketId || ticket._id}`,
+        link: "/admin/support",
+      });
+    }
+
     const updatedTicket = await SupportTicket.findById(ticketId)
       .populate("user", "firstName lastName email phone")
       .populate("assignedTo", "firstName lastName email")
       .populate("lastUpdatedBy", "firstName lastName email");
+
+    if (ticket.user) {
+      await sendNotification({
+        userId: ticket.user,
+        title: "Support ticket updated",
+        body: "Your support ticket was updated",
+        link: "/contact",
+      });
+    }
 
     res.json({
       success: true,
@@ -396,6 +441,23 @@ exports.addReply = async (req, res) => {
     ticket.lastUpdatedBy = req.user?._id;
 
     await ticket.save();
+
+    if (isAdmin && ticket.user) {
+      await sendNotification({
+        userId: ticket.user,
+        title: "Support reply",
+        body: "An admin replied to your support ticket",
+        link: "/contact",
+      });
+    } else {
+      const admins = await Admin.find().select("_id");
+      await sendNotificationToUsers({
+        userIds: admins.map((a) => a._id),
+        title: "Support ticket reply",
+        body: `New reply on ticket ${ticket.ticketId || ticket._id}`,
+        link: "/admin/support",
+      });
+    }
 
     const updatedTicket = await SupportTicket.findById(ticketId)
       .populate("user", "firstName lastName email phone")

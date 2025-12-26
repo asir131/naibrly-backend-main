@@ -4,6 +4,7 @@ const ServiceProvider = require("../models/ServiceProvider");
 const Admin = require("../models/Admin");
 const OTP = require("../models/OTP");
 const emailService = require("../utils/emailService");
+const { sendNotification } = require("../utils/notification");
 
 // Generate random OTP
 const generateOTP = (length = 5) => {
@@ -81,6 +82,13 @@ exports.sendResetOTP = async (req, res) => {
         error: emailResult.error || "Email service unavailable",
       });
     }
+
+    await sendNotification({
+      userId: user._id,
+      title: "Password reset requested",
+      body: "We sent a reset code to your email",
+      link: "/Login",
+    });
 
     res.json({
       success: true,

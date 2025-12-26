@@ -4,6 +4,7 @@ const Customer = require("../models/Customer");
 const Service = require("../models/Service");
 const Bundle = require("../models/Bundle");
 const { calculateServiceCommission } = require("./commissionController");
+const { sendNotification } = require("../utils/notification");
 
 // Helper function to get default price based on service type
 const getDefaultPrice = (serviceType) => {
@@ -796,6 +797,28 @@ exports.updateRequestStatus = async (req, res) => {
       "firstName lastName businessNameRegistered profileImage businessLogo phone rating"
     );
 
+    const customerId = serviceRequest.customer?._id || serviceRequest.customer;
+    if (customerId) {
+      let title = "Service request update";
+      let body = `Request ${status}`;
+      if (status === "accepted") {
+        title = "Service request accepted";
+        body = "Your service request was accepted";
+      } else if (status === "completed") {
+        title = "Service request completed";
+        body = "Your service request was marked completed";
+      } else if (status === "cancelled") {
+        title = "Service request cancelled";
+        body = "Your service request was cancelled by the provider";
+      }
+      await sendNotification({
+        userId: customerId,
+        title,
+        body,
+        requestId: serviceRequest._id,
+      });
+    }
+
     // Prepare response message
     let message = `Service request ${status} successfully`;
     if (status === "accepted") {
@@ -879,6 +902,15 @@ exports.cancelRequest = async (req, res) => {
     serviceRequest.cancelledBy = "customer";
     serviceRequest.cancellationReason = cancellationReason;
 
+    await sendNotification({
+      userId: serviceRequest.provider,
+      title: "Service request cancelled",
+      body: `${req.user.firstName || "Customer"} cancelled the request`,
+      requestId: serviceRequest._id,
+      recipientRole: "provider",
+      customerId: req.user._id,
+    });
+
     await serviceRequest.save();
 
     res.json({
@@ -943,6 +975,15 @@ exports.addReview = async (req, res) => {
     await serviceRequest.save();
 
     // Update provider's rating
+    await sendNotification({
+      userId: serviceRequest.provider,
+      title: "New review received",
+      body: `You received a ${rating}-star review`,
+      requestId: serviceRequest._id,
+      recipientRole: "provider",
+      customerId: serviceRequest.customer,
+    });
+
     await updateProviderRating(serviceRequest.provider);
 
     res.json({

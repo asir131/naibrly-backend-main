@@ -8,6 +8,7 @@ const { updateProviderRating } = require("./serviceRequestController");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const { calculateBundleCommission } = require("./commissionController");
+const { sendNotification, sendNotificationToUsers } = require("../utils/notification");
 
 // Initialize default bundle settings
 const initializeBundleSettings = async () => {
@@ -180,6 +181,20 @@ exports.createBundle = async (req, res) => {
 
     await bundle.save();
 
+    const providersToNotify = await ServiceProvider.find({
+      "serviceAreas.zipCode": customerZipCode,
+      "serviceAreas.isActive": true,
+      isApproved: true,
+      isActive: true,
+    }).select("_id");
+
+    await sendNotificationToUsers({
+      userIds: providersToNotify.map((p) => p._id),
+      title: "New bundle request",
+      body: `${bundle.title} in ${customerZipCode}`,
+      link: "/provider/signup/analytics",
+    });
+
     // Generate shareable link and QR code
     // Use frontend URL so customers land on the join-bundle page (will redirect to login if needed)
     const frontendBaseUrl =
@@ -318,6 +333,25 @@ exports.joinBundle = async (req, res) => {
     }
 
     await bundle.save();
+
+    const creatorId = bundle.creator?.toString?.() || bundle.creator;
+    await sendNotification({
+      userId: creatorId,
+      title: "New bundle participant",
+      body: `${customer.firstName || "A customer"} joined your bundle`,
+      bundleId: bundle._id,
+    });
+
+    if (bundle.provider) {
+      await sendNotification({
+        userId: bundle.provider,
+        title: "New bundle participant",
+        body: `${customer.firstName || "A customer"} joined a bundle you are assigned to`,
+        bundleId: bundle._id,
+        recipientRole: "provider",
+        customerId: customerId,
+      });
+    }
 
     // If a provider is already assigned, ensure a conversation exists for this participant
     if (bundle.provider) {
@@ -565,6 +599,51 @@ exports.makeProviderOffer = async (req, res) => {
     });
 
     await bundle.save();
+
+    const participantIds = new Set();
+    if (bundle.creator) {
+      participantIds.add(bundle.creator.toString());
+    }
+    bundle.participants?.forEach((p) => {
+      if (p.customer) participantIds.add(p.customer.toString());
+    });
+
+    if (status === "accepted") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle accepted",
+        body: "Your bundle request was accepted by a provider",
+        bundleId: bundle._id,
+      });
+    } else if (status === "declined") {
+      await sendNotification({
+        userId: bundle.creator,
+        title: "Bundle declined",
+        body: "A provider declined your bundle",
+        bundleId: bundle._id,
+      });
+    } else if (status === "cancelled") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle cancelled",
+        body: "The bundle was cancelled by the provider",
+        bundleId: bundle._id,
+      });
+    } else if (status === "completed") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle completed",
+        body: "The bundle was marked completed",
+        bundleId: bundle._id,
+      });
+    } else if (status === "in_progress") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle in progress",
+        body: "Work has started on your bundle",
+        bundleId: bundle._id,
+      });
+    }
 
     // Populate for response
     await bundle.populate(
@@ -858,6 +937,51 @@ exports.updateBundleStatus = async (req, res) => {
     });
 
     await bundle.save();
+
+    const participantIds = new Set();
+    if (bundle.creator) {
+      participantIds.add(bundle.creator.toString());
+    }
+    bundle.participants?.forEach((p) => {
+      if (p.customer) participantIds.add(p.customer.toString());
+    });
+
+    if (status === "accepted") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle accepted",
+        body: "Your bundle request was accepted by a provider",
+        bundleId: bundle._id,
+      });
+    } else if (status === "declined") {
+      await sendNotification({
+        userId: bundle.creator,
+        title: "Bundle declined",
+        body: "A provider declined your bundle",
+        bundleId: bundle._id,
+      });
+    } else if (status === "cancelled") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle cancelled",
+        body: "The bundle was cancelled by the provider",
+        bundleId: bundle._id,
+      });
+    } else if (status === "completed") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle completed",
+        body: "The bundle was marked completed",
+        bundleId: bundle._id,
+      });
+    } else if (status === "in_progress") {
+      await sendNotificationToUsers({
+        userIds: Array.from(participantIds),
+        title: "Bundle in progress",
+        body: "Work has started on your bundle",
+        bundleId: bundle._id,
+      });
+    }
 
     // Populate for response
     await bundle.populate([

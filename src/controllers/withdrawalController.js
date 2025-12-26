@@ -1,4 +1,5 @@
 const WithdrawalRequest = require("../models/WithdrawalRequest");
+const { sendNotification } = require("../utils/notification");
 const ServiceProvider = require("../models/ServiceProvider");
 const PayoutInformation = require("../models/PayoutInformation");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
