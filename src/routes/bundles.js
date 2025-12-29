@@ -33,6 +33,12 @@ router.get(
 );
 
 // Provider routes
+router.post(
+  "/:bundleId/provider/accept",
+  auth,
+  authorize("provider"),
+  bundleController.providerAcceptBundle
+);
 router.patch(
   "/:bundleId/status",
   auth,

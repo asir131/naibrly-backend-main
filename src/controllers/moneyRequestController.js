@@ -79,8 +79,14 @@ const sendMoneyNotification = async ({
 
 const createMoneyRequest = async (req, res) => {
   try {
-    const { serviceRequestId, bundleId, amount, description, dueDate } =
-      req.body;
+    const {
+      serviceRequestId,
+      bundleId,
+      amount,
+      description,
+      dueDate,
+      customerId,
+    } = req.body;
     const providerId = req.user._id;
 
     console.log("Creating money request with data:", {
@@ -184,6 +190,26 @@ const createMoneyRequest = async (req, res) => {
         customerIds
       );
 
+      if (customerId) {
+        const isCreator =
+          bundle.creator &&
+          bundle.creator._id.toString() === customerId.toString();
+        const isParticipant = bundle.participants?.some(
+          (participant) =>
+            participant.customer &&
+            participant.customer._id.toString() === customerId.toString()
+        );
+
+        if (!isCreator && !isParticipant) {
+          return res.status(400).json({
+            success: false,
+            message: "Customer is not part of this bundle",
+          });
+        }
+
+        customerIds = [customerId];
+      }
+
       // Apply bundle discount to get final amount
       if (bundle.bundleDiscount && bundle.bundleDiscount > 0) {
         finalAmount = amount - (amount * bundle.bundleDiscount) / 100;
@@ -192,7 +218,7 @@ const createMoneyRequest = async (req, res) => {
         );
       }
 
-      // Check if money requests already exist for any participant in this bundle
+      // Check if money requests already exist for targeted participant(s)
       const existingRequests = await MoneyRequest.find({
         bundle: bundleId,
         customer: { $in: customerIds },
@@ -501,6 +527,7 @@ const getProviderMoneyRequests = async (req, res) => {
       limit = 10,
       serviceRequestId,
       bundleId,
+      customerId,
     } = req.query;
     const providerId = req.user._id;
 
@@ -508,6 +535,7 @@ const getProviderMoneyRequests = async (req, res) => {
     if (status) filter.status = status;
     if (serviceRequestId) filter.serviceRequest = serviceRequestId;
     if (bundleId) filter.bundle = bundleId;
+    if (customerId) filter.customer = customerId;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
