@@ -10,6 +10,18 @@ const QRCode = require("qrcode");
 const { calculateBundleCommission } = require("./commissionController");
 const { sendNotification, sendNotificationToUsers } = require("../utils/notification");
 
+const markActiveParticipantsAccepted = (bundle) => {
+  if (!bundle?.participants) return;
+  bundle.participants.forEach((participant) => {
+    if (
+      participant.status === "active" &&
+      participant.completionStatus !== "completed"
+    ) {
+      participant.completionStatus = "accepted";
+    }
+  });
+};
+
 // Initialize default bundle settings
 const initializeBundleSettings = async () => {
   try {
@@ -163,6 +175,7 @@ exports.createBundle = async (req, res) => {
           customer: customer._id,
           address: address || customer.address,
           status: "active",
+          completionStatus: "pending",
         },
       ],
       bundleDiscount: bundleDiscount,
@@ -320,10 +333,15 @@ exports.joinBundle = async (req, res) => {
     const joinAddress = address || customer.address;
 
     // Add customer to bundle with their own address
+    const participantCompletionStatus =
+      bundle.status === "accepted" || bundle.status === "in_progress"
+        ? "accepted"
+        : "pending";
     bundle.participants.push({
       customer: customerId,
       address: joinAddress,
       status: "active",
+      completionStatus: participantCompletionStatus,
     });
     bundle.currentParticipants += 1;
 
@@ -738,8 +756,8 @@ exports.updateBundleStatus = async (req, res) => {
     let changedBy = "provider";
     let originalMaxParticipants = bundle.maxParticipants; // Store original capacity
 
-    // Handle different status updates
-    if (status === "accepted") {
+      // Handle different status updates
+      if (status === "accepted") {
       // Check if bundle already has a provider
       if (
         bundle.provider &&
@@ -761,11 +779,12 @@ exports.updateBundleStatus = async (req, res) => {
         newCapacity: bundle.maxParticipants,
       });
 
-      // Set provider and update rates
-      bundle.provider = providerId;
-      statusNote =
-        message ||
-        `Bundle accepted by ${provider.businessNameRegistered}. Capacity set to ${providerMaxCapacity}.`;
+        // Set provider and update rates
+        bundle.provider = providerId;
+        statusNote =
+          message ||
+          `Bundle accepted by ${provider.businessNameRegistered}. Capacity set to ${providerMaxCapacity}.`;
+        markActiveParticipantsAccepted(bundle);
 
       // Add to provider offers if not already there
       const existingOffer = bundle.providerOffers.find(
@@ -1488,8 +1507,9 @@ exports.acceptProviderOffer = async (req, res) => {
       }
     });
 
-    bundle.provider = offer.provider;
-    bundle.status = "accepted";
+  bundle.provider = offer.provider;
+  bundle.status = "accepted";
+  markActiveParticipantsAccepted(bundle);
 
     await bundle.save();
 
@@ -1544,6 +1564,91 @@ exports.acceptProviderOffer = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to accept offer",
+      error: error.message,
+    });
+  }
+};
+
+// Provider updates a single participant's completion status in a bundle
+exports.updateBundleParticipantStatus = async (req, res) => {
+  try {
+    const { bundleId, customerId } = req.params;
+    const { status } = req.body || {};
+    const providerId = req.user._id;
+
+    if (!status || !["completed"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be 'completed'",
+      });
+    }
+
+    const bundle = await Bundle.findById(bundleId);
+    if (!bundle) {
+      return res.status(404).json({
+        success: false,
+        message: "Bundle not found",
+      });
+    }
+
+    if (!bundle.provider || bundle.provider.toString() !== providerId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not assigned to this bundle",
+      });
+    }
+
+    const participant = bundle.participants.find(
+      (p) =>
+        p.customer?.toString() === customerId.toString() && p.status === "active"
+    );
+
+    if (!participant) {
+      return res.status(404).json({
+        success: false,
+        message: "Active participant not found in this bundle",
+      });
+    }
+
+    participant.completionStatus = "completed";
+    participant.completedAt = new Date();
+
+    const allActiveCompleted = bundle.participants
+      .filter((p) => p.status === "active")
+      .every((p) => p.completionStatus === "completed");
+
+    if (allActiveCompleted) {
+      bundle.status = "completed";
+      bundle.completedAt = new Date();
+      bundle.statusHistory.push({
+        status: "completed",
+        note: "All participants completed",
+        changedBy: "provider",
+        timestamp: new Date(),
+      });
+    }
+
+    await bundle.save();
+
+    await bundle.populate([
+      { path: "creator", select: "firstName lastName profileImage" },
+      { path: "participants.customer", select: "firstName lastName profileImage" },
+      { path: "provider", select: "businessNameRegistered businessLogo" },
+    ]);
+
+    res.json({
+      success: true,
+      message: "Participant marked completed",
+      data: {
+        bundle,
+        participantId: customerId,
+      },
+    });
+  } catch (error) {
+    console.error("Update bundle participant status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update participant status",
       error: error.message,
     });
   }
@@ -1924,6 +2029,7 @@ exports.providerAcceptBundle = async (req, res) => {
     // Set provider and update status
     bundle.provider = providerId;
     bundle.status = "accepted";
+    markActiveParticipantsAccepted(bundle);
 
     // Add provider offer
     bundle.providerOffers.push({

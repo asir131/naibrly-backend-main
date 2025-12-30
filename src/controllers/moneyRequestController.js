@@ -153,7 +153,6 @@ const createMoneyRequest = async (req, res) => {
       bundle = await Bundle.findOne({
         _id: bundleId,
         provider: providerId,
-        status: "completed",
       })
         .populate("participants.customer", "firstName lastName email phone")
         .populate("creator", "firstName lastName email phone");
@@ -161,7 +160,14 @@ const createMoneyRequest = async (req, res) => {
       if (!bundle) {
         return res.status(404).json({
           success: false,
-          message: "Completed bundle not found or you are not the provider",
+          message: "Bundle not found or you are not the provider",
+        });
+      }
+
+      if (["cancelled", "expired"].includes(bundle.status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Bundle is not eligible for payment requests",
         });
       }
 
@@ -191,23 +197,36 @@ const createMoneyRequest = async (req, res) => {
       );
 
       if (customerId) {
-        const isCreator =
-          bundle.creator &&
-          bundle.creator._id.toString() === customerId.toString();
-        const isParticipant = bundle.participants?.some(
-          (participant) =>
-            participant.customer &&
-            participant.customer._id.toString() === customerId.toString()
-        );
+        const participantEntry = bundle.participants.find((participant) => {
+          const participantId =
+            participant.customer?._id || participant.customer;
+          return (
+            participantId?.toString() === customerId.toString() &&
+            participant.status === "active"
+          );
+        });
 
-        if (!isCreator && !isParticipant) {
+        if (!participantEntry) {
           return res.status(400).json({
             success: false,
-            message: "Customer is not part of this bundle",
+            message: "Customer is not an active participant in this bundle",
+          });
+        }
+
+        if (participantEntry.completionStatus !== "completed") {
+          return res.status(400).json({
+            success: false,
+            message: "Participant is not marked completed yet",
           });
         }
 
         customerIds = [customerId];
+      } else if (bundle.status !== "completed") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Bundle is not completed. Provide customerId to request payment for a single participant.",
+        });
       }
 
       // Apply bundle discount to get final amount

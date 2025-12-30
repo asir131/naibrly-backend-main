@@ -100,6 +100,14 @@ const bundleSchema = new mongoose.Schema(
           enum: ["active", "cancelled"],
           default: "active",
         },
+        completionStatus: {
+          type: String,
+          enum: ["pending", "accepted", "completed"],
+          default: "pending",
+        },
+        completedAt: {
+          type: Date,
+        },
       },
     ],
     // Bundle discount set by admin

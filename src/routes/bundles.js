@@ -45,6 +45,12 @@ router.patch(
   authorize("provider"),
   bundleController.updateBundleStatus
 );
+router.patch(
+  "/:bundleId/participants/:customerId/status",
+  auth,
+  authorize("provider"),
+  bundleController.updateBundleParticipantStatus
+);
 router.get(
   "/search",
   auth,
