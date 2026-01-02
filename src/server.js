@@ -3,6 +3,8 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const express = require("express");
+const passport = require("passport");
+require("./config/passport");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
@@ -104,6 +106,9 @@ const ensureConversationIndexes = async () => {
 ensureConversationIndexes();
 
 const app = express();
+
+// Initialize Passport (stateless JWT auth)
+app.use(passport.initialize());
 
 // Create HTTP server
 const server = http.createServer(app);

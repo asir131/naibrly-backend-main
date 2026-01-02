@@ -10,6 +10,9 @@ const ServiceRequest = require("../models/ServiceRequest");
 const { cloudinary } = require("../config/cloudinary");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
+const { OAuth2Client } = require("google-auth-library");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
@@ -637,6 +640,112 @@ const login = async (req, res) => {
   }
 };
 
+const googleMobileLogin = async (req, res) => {
+  try {
+    const { idToken } = req.body || {};
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: "idToken is required",
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload?.email;
+    const googleId = payload?.sub;
+
+    if (!email || !googleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Google token payload",
+      });
+    }
+
+    let user = await Customer.findOne({ googleId });
+    if (!user) {
+      user = await Customer.findOne({ email: email.toLowerCase() });
+    }
+
+    if (!user) {
+      const fullName = payload?.name || "";
+      const parts = fullName.split(" ").filter(Boolean);
+      const firstName = parts[0] || "Google";
+      const lastName = parts.slice(1).join(" ") || "User";
+      const randomPassword = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+      user = new Customer({
+        firstName,
+        lastName,
+        email: email.toLowerCase(),
+        password: randomPassword,
+        phone: "",
+        address: {
+          street: "",
+          city: "",
+          state: "",
+          zipCode: "",
+          aptSuite: "",
+        },
+        googleId,
+        authProvider: "google",
+        profileImage: {
+          url: payload?.picture || undefined,
+        },
+      });
+
+      await user.save();
+    }
+
+    if (!user.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Account is deactivated",
+      });
+    }
+
+    if (!user.googleId) {
+      user.googleId = googleId;
+      user.authProvider = "google";
+      await user.save();
+    }
+
+    const token = generateToken(user._id);
+
+    const userData = {
+      id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      role: user.role,
+      profileImage: user.profileImage,
+      address: user.address,
+      isVerified: user.isVerified,
+    };
+
+    res.json({
+      success: true,
+      message: "Google login successful",
+      data: {
+        token,
+        user: userData,
+      },
+    });
+  } catch (error) {
+    console.error("Google mobile login error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Google login failed",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+
 const getMe = async (req, res) => {
   try {
     let userData;
@@ -936,6 +1045,7 @@ module.exports = {
   registerCustomer,
   registerProvider,
   login,
+  googleMobileLogin,
   getMe,
   approveProvider,
   checkProviderStatus,

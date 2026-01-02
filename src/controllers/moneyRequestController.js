@@ -768,9 +768,7 @@ const setAmountAndPay = async (req, res) => {
 
     // Build frontend success/cancel URLs so the user returns to the app (conversation page)
     const frontendBase =
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      "http://localhost:3000";
+      process.env.CLIENT_URL || process.env.FRONTEND_URL || "/success";
     const targetSlug = moneyRequest.serviceRequest
       ? `request-${moneyRequest.serviceRequest}`
       : moneyRequest.bundle
@@ -864,20 +862,21 @@ const getProviderPaymentHistory = async (req, res) => {
 
     const filter = { provider: providerId, status: "paid" };
 
-    const [moneyRequests, totalPaidMoneyRequests, withdrawals] = await Promise.all([
-      MoneyRequest.find(filter)
-        .populate("customer", "firstName lastName email phone profileImage")
-        .populate("serviceRequest", "serviceType scheduledDate")
-        .populate("bundle", "title category finalPrice")
-        .sort({ paidAt: -1, updatedAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit)),
-      MoneyRequest.countDocuments(filter),
-      WithdrawalRequest.find({ provider: providerId })
-        .populate("processedBy", "firstName lastName email")
-        .sort({ createdAt: -1 })
-        .lean(),
-    ]);
+    const [moneyRequests, totalPaidMoneyRequests, withdrawals] =
+      await Promise.all([
+        MoneyRequest.find(filter)
+          .populate("customer", "firstName lastName email phone profileImage")
+          .populate("serviceRequest", "serviceType scheduledDate")
+          .populate("bundle", "title category finalPrice")
+          .sort({ paidAt: -1, updatedAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit)),
+        MoneyRequest.countDocuments(filter),
+        WithdrawalRequest.find({ provider: providerId })
+          .populate("processedBy", "firstName lastName email")
+          .sort({ createdAt: -1 })
+          .lean(),
+      ]);
 
     const formattedWithdrawals = withdrawals.map((w) => ({
       _id: w._id,
@@ -899,7 +898,9 @@ const getProviderPaymentHistory = async (req, res) => {
 
     // Combine payments and withdrawals for unified history
     const combined = [...formattedPayments, ...formattedWithdrawals].sort(
-      (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt) -
+        new Date(a.updatedAt || a.createdAt)
     );
 
     res.json({
@@ -909,7 +910,9 @@ const getProviderPaymentHistory = async (req, res) => {
         pagination: {
           current: parseInt(page),
           total: totalPaidMoneyRequests + withdrawals.length,
-          pages: Math.ceil((totalPaidMoneyRequests + withdrawals.length) / parseInt(limit)),
+          pages: Math.ceil(
+            (totalPaidMoneyRequests + withdrawals.length) / parseInt(limit)
+          ),
         },
       },
     });
@@ -1000,7 +1003,9 @@ const getProviderFinanceHistory = async (req, res) => {
         type: "withdrawal",
       })),
     ].sort(
-      (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt) -
+        new Date(a.updatedAt || a.createdAt)
     );
 
     res.json({
@@ -1281,7 +1286,7 @@ const handlePaymentSuccess = async (req, res) => {
       session.status === "complete" ||
       session.payment_intent?.status === "succeeded";
 
-        if (isPaid) {
+    if (isPaid) {
       // Force status to paid (Stripe authoritative)
       moneyRequest.status = "paid";
       moneyRequest.paymentDetails = {
@@ -1322,7 +1327,8 @@ const handlePaymentSuccess = async (req, res) => {
       });
 
       const wantsJson =
-        (req.headers.accept && req.headers.accept.includes("application/json")) ||
+        (req.headers.accept &&
+          req.headers.accept.includes("application/json")) ||
         req.query.format === "json";
 
       if (wantsJson) {

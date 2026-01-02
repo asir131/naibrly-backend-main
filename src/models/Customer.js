@@ -20,15 +20,29 @@ const customerSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    googleId: {
+      type: String,
+      default: "",
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      required: function () {
+        return this.authProvider !== "google";
+      },
       minlength: [6, "Password must be at least 6 characters"],
     },
     phone: {
       type: String,
-      required: [true, "Phone number is required"],
+      required: function () {
+        return this.authProvider !== "google";
+      },
       trim: true,
+      default: "",
     },
     profileImage: {
       url: {
@@ -43,19 +57,31 @@ const customerSchema = new mongoose.Schema(
     address: {
       street: {
         type: String,
-        required: [true, "Street address is required"],
+        required: function () {
+          return this.authProvider !== "google";
+        },
+        default: "",
       },
       city: {
         type: String,
-        required: [true, "City is required"],
+        required: function () {
+          return this.authProvider !== "google";
+        },
+        default: "",
       },
       state: {
         type: String,
-        required: [true, "State is required"],
+        required: function () {
+          return this.authProvider !== "google";
+        },
+        default: "",
       },
       zipCode: {
         type: String,
-        required: [true, "Zip code is required"],
+        required: function () {
+          return this.authProvider !== "google";
+        },
+        default: "",
       },
       aptSuite: {
         type: String,
