@@ -537,6 +537,96 @@ const cancelMoneyRequest = async (req, res) => {
   }
 };
 
+// Provider cancels money request (bundle or service request)
+const cancelMoneyRequestByProvider = async (req, res) => {
+  try {
+    const { moneyRequestId } = req.params;
+    const providerId = req.user._id;
+
+    console.log("Provider cancelling money request:", {
+      moneyRequestId,
+      providerId,
+    });
+
+    const moneyRequest = await MoneyRequest.findOne({
+      _id: moneyRequestId,
+      provider: providerId,
+      status: { $in: ["pending", "accepted"] },
+    });
+
+    if (!moneyRequest) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Pending or accepted money request not found or you are not the provider",
+      });
+    }
+
+    moneyRequest.status = "cancelled";
+    moneyRequest._statusChangedBy = providerId;
+    moneyRequest._statusChangedByRole = "provider";
+
+    if (!moneyRequest.paymentDetails) {
+      moneyRequest.paymentDetails = {};
+    }
+    moneyRequest.paymentDetails.status = "cancelled";
+    moneyRequest.paymentDetails.canceledAt = new Date();
+
+    console.log("Saving provider-cancelled money request...");
+    await moneyRequest.save();
+
+    // Notify customer that the provider cancelled the request
+    sendMoneyNotification({
+      userId: moneyRequest.customer,
+      recipientRole: "customer",
+      serviceRequestId: moneyRequest.serviceRequest,
+      bundleId: moneyRequest.bundle,
+      customerId: moneyRequest.customer,
+      title: "Payment request cancelled",
+      body: "Provider cancelled the payment request",
+    });
+
+    res.json({
+      success: true,
+      message: "Money request cancelled successfully",
+      data: {
+        moneyRequest,
+      },
+    });
+  } catch (error) {
+    console.error("Provider cancel money request error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to cancel money request",
+      error: error.message,
+    });
+  }
+};
+
+// Provider deletes all money requests for their account
+const deleteAllProviderMoneyRequests = async (req, res) => {
+  try {
+    const providerId = req.user._id;
+
+    const result = await MoneyRequest.deleteMany({ provider: providerId });
+
+    res.json({
+      success: true,
+      message: "All money requests deleted successfully",
+      data: {
+        deletedCount: result.deletedCount || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Delete provider money requests error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete money requests",
+      error: error.message,
+    });
+  }
+};
+
 // Get money requests for provider
 const getProviderMoneyRequests = async (req, res) => {
   try {
@@ -1793,6 +1883,8 @@ module.exports = {
   getMoneyRequest,
   acceptMoneyRequest,
   cancelMoneyRequest,
+  cancelMoneyRequestByProvider,
+  deleteAllProviderMoneyRequests,
   processPayment,
   completePayment,
   raiseDispute,

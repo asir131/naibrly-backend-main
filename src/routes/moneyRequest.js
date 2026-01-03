@@ -15,6 +15,8 @@ const {
   acceptMoneyRequestWithAmount,
   setAmountAndPay,
   cancelMoneyRequest,
+  cancelMoneyRequestByProvider,
+  deleteAllProviderMoneyRequests,
   processPayment,
   completePayment,
   raiseDispute,
@@ -75,6 +77,18 @@ router.patch(
   auth,
   authorize("customer"),
   cancelMoneyRequest
+);
+router.patch(
+  "/:moneyRequestId/cancel-by-provider",
+  auth,
+  authorize("provider"),
+  cancelMoneyRequestByProvider
+);
+router.delete(
+  "/provider/all",
+  auth,
+  authorize("provider"),
+  deleteAllProviderMoneyRequests
 );
 router.post(
   "/:moneyRequestId/pay",
