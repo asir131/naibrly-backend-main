@@ -24,6 +24,14 @@ router.get(
   bundleController.getUserBundles
 );
 
+// Check if current customer is a participant of a bundle
+router.get(
+  "/:bundleId/participation",
+  auth,
+  authorize("customer"),
+  bundleController.checkBundleParticipation
+);
+
 // NEW ROUTE: Get nearby bundles for customer
 router.get(
   "/customer/nearby",

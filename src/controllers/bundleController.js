@@ -3,6 +3,7 @@ const BundleSettings = require("../models/BundleSettings");
 const Customer = require("../models/Customer");
 const ServiceProvider = require("../models/ServiceProvider");
 const Service = require("../models/Service");
+const CategoryType = require("../models/CategoryType");
 const Conversation = require("../models/Conversation");
 const { updateProviderRating } = require("./serviceRequestController");
 const crypto = require("crypto");
@@ -148,6 +149,24 @@ exports.createBundle = async (req, res) => {
     const discountAmount = (totalPrice * bundleDiscount) / 100;
     const finalPrice = totalPrice - discountAmount;
 
+    // Derive a cover image from the first service's category type image
+    let coverImage = "";
+    if (servicesWithDefaultRates.length > 0) {
+      const firstServiceName = servicesWithDefaultRates[0]?.name;
+      const firstServiceDoc = validServices.find(
+        (svc) => svc.name === firstServiceName
+      );
+      if (firstServiceDoc?.categoryType) {
+        const categoryTypeDoc = await CategoryType.findById(
+          firstServiceDoc.categoryType
+        ).select("image");
+        coverImage =
+          categoryTypeDoc?.image?.url ||
+          categoryTypeDoc?.image ||
+          coverImage;
+      }
+    }
+
     console.log("💰 Price calculation:", {
       totalPrice,
       discountAmount,
@@ -176,8 +195,10 @@ exports.createBundle = async (req, res) => {
           address: address || customer.address,
           status: "active",
           completionStatus: "pending",
+          joined: true,
         },
       ],
+      
       bundleDiscount: bundleDiscount,
       shareToken: crypto.randomBytes(16).toString("hex"),
       // NEW: Store pricing in database
@@ -188,6 +209,7 @@ exports.createBundle = async (req, res) => {
         discountPercent: bundleDiscount,
       },
       finalPrice: finalPrice, // Also store finalPrice at root level for easy access
+      coverImage,
     });
 
     console.log("🔍 Debug - Bundle object before save:", bundle);
@@ -437,6 +459,51 @@ exports.joinBundle = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to join bundle",
+      error: error.message,
+    });
+  }
+};
+
+// Check if the authenticated customer is a participant or creator of a bundle
+exports.checkBundleParticipation = async (req, res) => {
+  try {
+    const { bundleId } = req.params;
+    const customerId = req.user._id;
+
+    const bundle = await Bundle.findById(bundleId).select(
+      "creator participants"
+    );
+
+    if (!bundle) {
+      return res.status(404).json({
+        success: false,
+        message: "Bundle not found",
+      });
+    }
+
+    const isCreator =
+      bundle.creator?.toString?.() === customerId.toString();
+
+    const isParticipant = bundle.participants.some((p) => {
+      const pid = p?.customer?.toString?.();
+      return (
+        pid === customerId.toString() &&
+        p.status === "active"
+      );
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        isCreator,
+        isParticipant: isCreator || isParticipant,
+      },
+    });
+  } catch (error) {
+    console.error("Check bundle participation error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to check bundle participation",
       error: error.message,
     });
   }

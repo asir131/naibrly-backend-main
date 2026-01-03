@@ -84,6 +84,10 @@ const bundleSchema = new mongoose.Schema(
           ref: "Customer",
           required: true,
         },
+        joined: {
+          type: Boolean,
+          default: false,
+        },
         address: {
           street: String,
           city: String,
@@ -225,6 +229,11 @@ const bundleSchema = new mongoose.Schema(
         },
       },
     ],
+    // Optional hero/cover image for the bundle (e.g., category image of first service)
+    coverImage: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
