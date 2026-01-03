@@ -1636,6 +1636,84 @@ exports.acceptProviderOffer = async (req, res) => {
   }
 };
 
+// Customer cancels their own participation in a bundle
+exports.cancelBundleParticipation = async (req, res) => {
+  try {
+    const { bundleId } = req.params;
+    const { cancellationReason } = req.body || {};
+    const customerId = req.user._id;
+
+    const bundle = await Bundle.findById(bundleId);
+    if (!bundle) {
+      return res.status(404).json({
+        success: false,
+        message: "Bundle not found",
+      });
+    }
+
+    if (bundle.status === "completed" || bundle.status === "cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot cancel participation for a closed bundle",
+      });
+    }
+
+    const participant = bundle.participants.find(
+      (p) =>
+        p.customer?.toString() === customerId.toString() && p.status === "active"
+    );
+
+    if (!participant) {
+      return res.status(404).json({
+        success: false,
+        message: "Active participant not found in this bundle",
+      });
+    }
+
+    participant.status = "cancelled";
+
+    bundle.currentParticipants = Math.max(bundle.currentParticipants - 1, 0);
+    if (bundle.status === "full" && bundle.currentParticipants < bundle.maxParticipants) {
+      bundle.status = bundle.provider ? "accepted" : "pending";
+    }
+
+    bundle.statusHistory = bundle.statusHistory || [];
+    bundle.statusHistory.push({
+      status: "participant_cancelled",
+      note: cancellationReason || "Participant cancelled",
+      changedBy: "customer",
+      timestamp: new Date(),
+    });
+
+    await bundle.save();
+
+    await bundle.populate([
+      { path: "creator", select: "firstName lastName profileImage" },
+      { path: "participants.customer", select: "firstName lastName profileImage" },
+      { path: "provider", select: "businessNameRegistered businessLogo" },
+    ]);
+
+    res.json({
+      success: true,
+      message: "Bundle participation cancelled successfully",
+      data: {
+        bundle: {
+          ...bundle.toObject(),
+          pricing: bundle.pricing,
+          availableSpots: bundle.maxParticipants - bundle.currentParticipants,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Cancel bundle participation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to cancel bundle participation",
+      error: error.message,
+    });
+  }
+};
+
 // Provider updates a single participant's completion status in a bundle
 exports.updateBundleParticipantStatus = async (req, res) => {
   try {

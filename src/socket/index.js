@@ -253,13 +253,21 @@ async function getOrCreateConversationV2(socket, { requestId, bundleId, customer
 
       let conversation = await Conversation.findOne({ requestId });
       if (!conversation) {
-        conversation = await Conversation.create({
-          customerId: serviceRequest.customer._id,
-          providerId: serviceRequest.provider._id,
-          requestId,
-          messages: [],
-          isActive: true,
-        });
+        try {
+          conversation = await Conversation.create({
+            customerId: serviceRequest.customer._id,
+            providerId: serviceRequest.provider._id,
+            requestId,
+            messages: [],
+            isActive: true,
+          });
+        } catch (err) {
+          if (err?.code === 11000) {
+            conversation = await Conversation.findOne({ requestId });
+          } else {
+            throw err;
+          }
+        }
       }
       return conversation;
     }
@@ -322,20 +330,41 @@ async function getOrCreateConversationV2(socket, { requestId, bundleId, customer
     }
 
     // Find or create conversation
+    const desiredProviderId =
+      socket.userRole === "provider"
+        ? socket.userId
+        : bundle.provider
+        ? bundle.provider._id
+        : null;
     let conversation = await Conversation.findOne({
       bundleId,
       customerId: targetCustomerId,
-      providerId: socket.userRole === "provider" ? socket.userId : bundle.provider ? bundle.provider._id : null,
     });
 
     if (!conversation) {
-      conversation = await Conversation.create({
+      const createPayload = {
         customerId: targetCustomerId,
-        providerId: socket.userRole === "provider" ? socket.userId : bundle.provider ? bundle.provider._id : null,
+        providerId: desiredProviderId,
         bundleId,
         messages: [],
         isActive: true,
-      });
+      };
+      try {
+        conversation = await Conversation.create(createPayload);
+      } catch (err) {
+        if (err?.code === 11000) {
+          conversation = await Conversation.findOne({
+            bundleId,
+            customerId: targetCustomerId,
+          });
+        } else {
+          throw err;
+        }
+      }
+    }
+    if (conversation && desiredProviderId && !conversation.providerId) {
+      conversation.providerId = desiredProviderId;
+      await conversation.save();
     }
 
     return conversation;

@@ -59,6 +59,13 @@ router.patch(
   authorize("provider"),
   bundleController.updateBundleParticipantStatus
 );
+// Customer cancels their own participation in a bundle
+router.patch(
+  "/:bundleId/participants/me/cancel",
+  auth,
+  authorize("customer"),
+  bundleController.cancelBundleParticipation
+);
 router.get(
   "/search",
   auth,
