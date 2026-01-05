@@ -2,6 +2,11 @@ const Category = require("../models/Category");
 const CategoryType = require("../models/CategoryType");
 const Service = require("../models/Service");
 
+const getCategoryTypeImage = (categoryType) => ({
+  url: categoryType?.image?.url || "",
+  publicId: categoryType?.image?.publicId || "",
+});
+
 // Comprehensive initialization of default categories, types, and services
 const initializeDefaultData = async () => {
   try {
@@ -187,11 +192,13 @@ const initializeDefaultData = async () => {
             name: serviceName,
             categoryType: categoryType._id,
             description: `${serviceName} service`,
+            image: getCategoryTypeImage(categoryType),
           });
           await service.save();
           totalServicesCreated++;
         } else if (!service.categoryType) {
           service.categoryType = categoryType._id;
+          service.image = getCategoryTypeImage(categoryType);
           await service.save();
         }
       }
@@ -593,6 +600,7 @@ const createCategoryTypeWithServices = async (req, res) => {
         name: serviceName,
         categoryType: categoryType._id,
         description: `${serviceName} service`,
+        image: getCategoryTypeImage(categoryType),
       });
       await service.save();
       createdServices.push(service);
@@ -687,6 +695,7 @@ const addServiceToCategoryType = async (req, res) => {
         ? serviceDescription.trim()
         : `${serviceName.trim()} service`,
       isActive: true,
+      image: getCategoryTypeImage(categoryType),
     });
 
     await newService.save();
@@ -767,6 +776,11 @@ const updateCategoryType = async (req, res) => {
     }
 
     await categoryType.save();
+
+    await Service.updateMany(
+      { categoryType: categoryType._id },
+      { image: getCategoryTypeImage(categoryType) }
+    );
 
     res.json({
       success: true,

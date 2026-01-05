@@ -21,6 +21,11 @@ const serviceRequestSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Optional cover image (e.g., category type image)
+    coverImage: {
+      type: String,
+      default: "",
+    },
     service: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",

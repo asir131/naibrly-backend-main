@@ -166,7 +166,7 @@ exports.createServiceRequest = async (req, res) => {
     const validServices = await Service.find({
       name: { $in: requestedServices },
       isActive: true,
-    });
+    }).populate("categoryType", "image");
 
     console.log(
       "🔍 Debug - Valid services from Service model:",
@@ -282,6 +282,10 @@ exports.createServiceRequest = async (req, res) => {
       id: actualServiceDoc?._id,
     });
 
+    const coverImage =
+      actualServiceDoc?.categoryType?.image?.url ||
+      "";
+
     // Validate date
     let formattedDate;
     try {
@@ -344,6 +348,7 @@ exports.createServiceRequest = async (req, res) => {
       },
       provider: providerId,
       serviceType: actualServiceName, // Main service
+      coverImage,
       service: actualServiceDoc?._id, // Reference to main Service document
       requestedServices: requestedServicesData, // All requested services
       problem: problem.trim(),
@@ -398,6 +403,7 @@ exports.createServiceRequest = async (req, res) => {
         serviceRequest: {
           _id: serviceRequest._id,
           serviceType: serviceRequest.serviceType,
+          coverImage: serviceRequest.coverImage,
           service: serviceRequest.service,
           requestedServices: serviceRequest.requestedServices, // Include requested services in response
           problem: serviceRequest.problem,
@@ -487,6 +493,7 @@ exports.getCustomerRequests = async (req, res) => {
     const formattedRequests = serviceRequests.map((request) => ({
       _id: request._id,
       serviceType: request.serviceType,
+      coverImage: request.coverImage || "",
       problem: request.problem,
       note: request.note,
       scheduledDate: request.scheduledDate,

@@ -7,6 +7,7 @@ const Bundle = require("../models/Bundle");
 const PayoutInformation = require("../models/PayoutInformation");
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const MoneyRequest = require("../models/MoneyRequest");
+const Service = require("../models/Service");
 // Update provider's bundle capacity
 exports.updateProviderCapacity = async (req, res) => {
   try {
@@ -880,6 +881,44 @@ exports.getProviderServiceDetailWithFeedback = async (req, res) => {
       (s) => s.name !== serviceName
     );
 
+    const serviceNames = [
+      selectedService?.name,
+      ...otherServices.map((s) => s.name),
+    ].filter(Boolean);
+
+    const serviceDocs = await Service.find({
+      name: { $in: serviceNames },
+      isActive: true,
+    }).select("name image");
+
+    const imageByName = new Map(
+      serviceDocs.map((doc) => [
+        doc.name,
+        doc.image || { url: "", publicId: "" },
+      ])
+    );
+
+    const normalizeService = (service) => {
+      if (!service) return null;
+      if (typeof service.toObject === "function") return service.toObject();
+      return { ...service };
+    };
+
+    const selectedServiceWithImage = selectedService
+      ? {
+          ...normalizeService(selectedService),
+          image: imageByName.get(selectedService.name) || {
+            url: "",
+            publicId: "",
+          },
+        }
+      : null;
+
+    const otherServicesWithImages = otherServices.map((service) => ({
+      ...normalizeService(service),
+      image: imageByName.get(service.name) || { url: "", publicId: "" },
+    }));
+
     // Feedback aggregation & list from ServiceRequest for all services of the provider
     const feedbackQuery = {
       provider: providerId,
@@ -930,8 +969,8 @@ exports.getProviderServiceDetailWithFeedback = async (req, res) => {
           rating: provider.rating,
           totalReviews: provider.totalReviews,
         },
-        selectedService,
-        otherServices,
+        selectedService: selectedServiceWithImage,
+        otherServices: otherServicesWithImages,
         feedback: {
           list: feedbackList,
           pagination: {
