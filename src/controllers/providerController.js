@@ -479,6 +479,7 @@ exports.getMyAllReviews = async (req, res) => {
         : await Bundle.find(bundleMatch)
             .select("title reviews creator")
             .populate("creator", "firstName lastName profileImage")
+            .populate("reviews.customer", "firstName lastName profileImage")
             .sort({ "reviews.createdAt": -1 });
 
     // Flatten bundle reviews

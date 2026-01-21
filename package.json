@@ -8,7 +8,8 @@
     "build": "true",
     "test": "echo 'No tests'",
     "seed": "node src/scripts/seedAll.js",
-    "backfill:service-images": "node src/scripts/backfillServiceImages.js"
+    "backfill:service-images": "node src/scripts/backfillServiceImages.js",
+    "backfill:bundle-zipcodes": "node src/scripts/backfillBundleZipCodes.js"
   },
   "keywords": [
     "naibrly",

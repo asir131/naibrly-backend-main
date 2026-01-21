@@ -278,25 +278,31 @@ exports.getNearbyBundles = async (req, res) => {
 
     // Get provider's services
     const providerServices = provider.servicesProvided.map((sp) => sp.name);
+    if (providerServices.length === 0) {
+      return res.json({
+        success: true,
+        message: "No services configured for this provider.",
+        data: {
+          bundles: [],
+          serviceAreas: provider.serviceAreas.filter((area) => area.isActive),
+          pagination: {
+            current: parseInt(page),
+            total: 0,
+            pages: 0,
+          },
+        },
+      });
+    }
+
     console.log("🔍 Provider services:", providerServices);
 
     // Find bundles that match provider's service areas and services
     const filter = {
       zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
       status: status,
-      $or: [
-        {
-          "services.name": {
-            $in: providerServices,
-          },
-        },
-        {
-          $and: [
-            { "providerOffers.provider": { $ne: req.user._id } },
-            { provider: { $ne: req.user._id } }, // Don't show bundles already assigned to this provider
-          ],
-        },
-      ],
+      $expr: { $setIsSubset: ["$services.name", providerServices] },
+      "providerOffers.provider": { $ne: req.user._id },
+      provider: { $ne: req.user._id }, // Don't show bundles already assigned to this provider
     };
 
     console.log("🔍 Database filter:", JSON.stringify(filter, null, 2));
@@ -453,3 +459,5 @@ exports.getProvidersByZipCode = async (req, res) => {
     });
   }
 };
+
+
