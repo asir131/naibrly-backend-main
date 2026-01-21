@@ -55,6 +55,53 @@ exports.getAllFAQs = async (req, res) => {
   }
 };
 
+// Get public FAQs (active only)
+exports.getPublicFAQs = async (req, res) => {
+  try {
+    const { category, search } = req.query;
+
+    const filter = { isActive: true };
+
+    if (category) {
+      filter.category = category;
+    }
+
+    if (search) {
+      filter.$or = [
+        { question: { $regex: search, $options: "i" } },
+        { answer: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const faqs = await FAQ.find(filter)
+      .sort({ order: 1, createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: {
+        faqs: faqs.map((faq) => ({
+          id: faq._id,
+          question: faq.question,
+          answer: faq.answer,
+          category: faq.category,
+          order: faq.order,
+          isActive: faq.isActive,
+          createdAt: faq.createdAt,
+          updatedAt: faq.updatedAt,
+        })),
+        total: faqs.length,
+      },
+    });
+  } catch (error) {
+    console.error("Get public FAQs error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch FAQs",
+      error: error.message,
+    });
+  }
+};
+
 // Get single FAQ
 exports.getFAQ = async (req, res) => {
   try {

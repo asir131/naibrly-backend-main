@@ -217,6 +217,9 @@ app.use("/api/notifications", require("./routes/notifications"));
 // Search routes
 app.use("/api/search", require("./routes/search"));
 
+// Public FAQ routes
+app.use("/api/faq", require("./routes/faq"));
+
 // Support ticket routes
 app.use("/api/support", require("./routes/support"));
 

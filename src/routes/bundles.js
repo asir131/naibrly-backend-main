@@ -66,12 +66,7 @@ router.patch(
   authorize("customer"),
   bundleController.cancelBundleParticipation
 );
-router.get(
-  "/search",
-  auth,
-  authorize("customer"),
-  bundleController.searchBundlesByNameAndZip
-);
+router.get("/search", bundleController.searchBundlesByNameAndZip);
 router.get("/all", bundleController.getAllBundles);
 
 // Public routes

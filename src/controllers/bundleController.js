@@ -10,6 +10,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const { calculateBundleCommission } = require("./commissionController");
 const { sendNotification, sendNotificationToUsers } = require("../utils/notification");
+const { getIO } = require("../socket");
 
 const markActiveParticipantsAccepted = (bundle) => {
   if (!bundle?.participants) return;
@@ -373,6 +374,18 @@ exports.joinBundle = async (req, res) => {
     }
 
     await bundle.save();
+
+    // Notify connected clients that a bundle has a new participant
+    try {
+      getIO().emit("bundle_joined", {
+        bundleId: bundle._id,
+        zipCode: bundle.zipCode,
+        currentParticipants: bundle.currentParticipants,
+        maxParticipants: bundle.maxParticipants,
+      });
+    } catch (socketError) {
+      console.warn("Socket emit bundle_joined failed:", socketError.message);
+    }
 
     const creatorId = bundle.creator?.toString?.() || bundle.creator;
     await sendNotification({
@@ -1201,15 +1214,21 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
 
     console.log(`🔍 Found ${bundles.length} bundles in ZIP ${customerZipCode}`);
 
+    const customerIdString = customerId ? customerId.toString() : null;
+
     // Add pricing and available spots information to each bundle
     const bundlesWithDetails = bundles.map((bundle) => {
       const pricing = bundle.calculateCustomerPrice();
-      const isCreator = bundle.creator._id.toString() === customerId.toString();
-      const isParticipant = bundle.participants.some(
-        (p) =>
-          p.customer._id.toString() === customerId.toString() &&
-          p.status === "active"
-      );
+      const isCreator = customerIdString
+        ? bundle.creator?._id?.toString() === customerIdString
+        : false;
+      const isParticipant = customerIdString
+        ? bundle.participants?.some(
+            (p) =>
+              p.customer?._id?.toString() === customerIdString &&
+              p.status === "active"
+          )
+        : false;
 
       return {
         ...bundle.toObject(),
@@ -1262,7 +1281,7 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
 exports.searchBundlesByNameAndZip = async (req, res) => {
   try {
     const { searchQuery, zipCode, category, page = 1, limit = 10 } = req.query;
-    const customerId = req.user._id;
+    const customerId = req.user?._id || null;
 
     console.log("🔍 Searching bundles for customer:", {
       customerId,
@@ -1271,24 +1290,26 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
       category,
     });
 
-    // Get customer details
-    const customer = await Customer.findById(customerId);
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
+    // Get customer details when authenticated
+    let customer = null;
+    if (customerId) {
+      customer = await Customer.findById(customerId);
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: "Customer not found",
+        });
+      }
     }
 
     // Use provided ZIP code or customer's default ZIP code
-    const searchZipCode = zipCode || customer.address.zipCode;
+    const searchZipCode = zipCode || customer?.address?.zipCode;
     console.log("🔍 Using ZIP code:", searchZipCode);
 
     if (!searchZipCode) {
       return res.status(400).json({
         success: false,
-        message:
-          "ZIP code is required. Please provide zipCode or update your profile address.",
+        message: "ZIP code is required. Please provide zipCode.",
       });
     }
 
@@ -1334,18 +1355,26 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
 
     console.log(`🔍 Found ${bundles.length} bundles matching search criteria`);
 
+    const customerIdString = customerId ? customerId.toString() : null;
+
     // Add pricing and user-specific information to each bundle
     const bundlesWithDetails = bundles.map((bundle) => {
       const pricing = bundle.calculateCustomerPrice();
-      const isCreator = bundle.creator._id.toString() === customerId.toString();
-      const isParticipant = bundle.participants.some(
-        (p) =>
-          p.customer._id.toString() === customerId.toString() &&
-          p.status === "active"
-      );
+      const isCreator = customerIdString
+        ? bundle.creator?._id?.toString() === customerIdString
+        : false;
+      const isParticipant = customerIdString
+        ? bundle.participants.some(
+            (p) =>
+              p.customer?._id?.toString() === customerIdString &&
+              p.status === "active"
+          )
+        : false;
 
       // Calculate relevance score for search results
       const relevanceScore = calculateBundleRelevance(bundle, searchQuery);
+      const canJoinBase =
+        bundle.currentParticipants < bundle.maxParticipants;
 
       return {
         ...bundle.toObject(),
@@ -1356,10 +1385,7 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
           : isParticipant
           ? "participant"
           : "none",
-        canJoin:
-          !isCreator &&
-          !isParticipant &&
-          bundle.currentParticipants < bundle.maxParticipants,
+        canJoin: !isCreator && !isParticipant && canJoinBase,
         relevanceScore: relevanceScore,
         searchMatch: {
           titleMatch: searchQuery
@@ -1686,6 +1712,17 @@ exports.cancelBundleParticipation = async (req, res) => {
     });
 
     await bundle.save();
+
+    // Notify connected clients that a new bundle is available
+    try {
+      getIO().emit("bundle_created", {
+        bundleId: bundle._id,
+        zipCode: bundle.zipCode,
+        serviceDate: bundle.serviceDate,
+      });
+    } catch (socketError) {
+      console.warn("Socket emit bundle_created failed:", socketError.message);
+    }
 
     await bundle.populate([
       { path: "creator", select: "firstName lastName profileImage" },
