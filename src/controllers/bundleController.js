@@ -1162,6 +1162,16 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
     const { page = 1, limit = 10, category } = req.query;
     const customerId = req.user._id;
 
+    // Mark expired bundles without deleting (keep for conversations/history)
+    const now = new Date();
+    await Bundle.updateMany(
+      {
+        serviceDate: { $lt: now },
+        status: { $nin: ["completed", "cancelled", "expired"] },
+      },
+      { $set: { status: "expired" } }
+    );
+
     console.log("🔍 Fetching nearby bundles for customer:", customerId);
 
     // Get customer's zip code
@@ -1212,6 +1222,20 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
       Bundle.countDocuments(filter),
     ]);
 
+    const categoryTypeNames = [
+      ...new Set(
+        bundles.map((bundle) => bundle.categoryTypeName).filter(Boolean)
+      ),
+    ];
+    const categoryTypes = await CategoryType.find({
+      name: { $in: categoryTypeNames },
+    })
+      .select("name image")
+      .lean();
+    const categoryTypeImageMap = new Map(
+      categoryTypes.map((type) => [type.name, type.image || null])
+    );
+
     console.log(`🔍 Found ${bundles.length} bundles in ZIP ${customerZipCode}`);
 
     const customerIdString = customerId ? customerId.toString() : null;
@@ -1232,6 +1256,8 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
 
       return {
         ...bundle.toObject(),
+        categoryTypeImage:
+          categoryTypeImageMap.get(bundle.categoryTypeName) || null,
         pricing: pricing,
         availableSpots: bundle.maxParticipants - bundle.currentParticipants,
         userRole: isCreator
@@ -1277,6 +1303,25 @@ exports.getNearbyBundlesForCustomer = async (req, res) => {
   }
 };
 
+// Normalize common service aliases for bundle search
+const normalizeSearchQuery = (value) => {
+  if (!value) return "";
+  const normalized = String(value).trim();
+  if (!normalized) return "";
+  const aliasMap = {
+    electrical: "Electrical",
+    electrician: "Electrician",
+    plumbing: "Plumber",
+    plumber: "Plumber",
+    "furniture assembly": "Furniture Assembly",
+    cleaning: "Cleaning",
+    "appliance repairs": "Appliance Repairs",
+    "lawn mowing": "Lawn Mowing"
+  };
+  const key = normalized.toLowerCase();
+  return aliasMap[key] || normalized;
+};
+
 // Search bundles by name and ZIP code for customers
 exports.searchBundlesByNameAndZip = async (req, res) => {
   try {
@@ -1320,14 +1365,25 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
       $expr: { $lt: ["$currentParticipants", "$maxParticipants"] },
     };
 
-    // Add search query filter (search in title and description)
-    if (searchQuery && searchQuery.trim() !== "") {
-      const searchRegex = new RegExp(searchQuery.trim(), "i");
+    const getSearchTerms = (value) => {
+      const raw = String(value || "").trim();
+      if (!raw) return [];
+      const normalized = normalizeSearchQuery(raw);
+      return Array.from(new Set([raw, normalized])).filter(Boolean);
+    };
+
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Add search query filter (search in title, description, category, and services)
+    if (searchQuery && normalizeSearchQuery(searchQuery) !== "") {
+      const terms = getSearchTerms(searchQuery);
+      const pattern = terms.map(escapeRegex).join("|");
+      const searchRegex = new RegExp(pattern, "i");
+
       filter.$or = [
         { title: { $regex: searchRegex } },
         { description: { $regex: searchRegex } },
         { category: { $regex: searchRegex } },
-        { categoryTypeName: { $regex: searchRegex } },
         { "services.name": { $regex: searchRegex } },
       ];
     }
@@ -1355,6 +1411,21 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
 
     console.log(`🔍 Found ${bundles.length} bundles matching search criteria`);
 
+    const categoryTypeNames = [
+      ...new Set(
+        bundles.map((bundle) => bundle.categoryTypeName).filter(Boolean)
+      ),
+    ];
+    const categoryTypes = await CategoryType.find({
+      name: { $in: categoryTypeNames },
+    })
+      .select("name image")
+      .lean();
+    const categoryTypeImageMap = new Map(
+      categoryTypes.map((type) => [type.name, type.image || null])
+    );
+    // categoryTypeImageMap_search_block_v2
+
     const customerIdString = customerId ? customerId.toString() : null;
 
     // Add pricing and user-specific information to each bundle
@@ -1378,6 +1449,8 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
 
       return {
         ...bundle.toObject(),
+        categoryTypeImage:
+          categoryTypeImageMap.get(bundle.categoryTypeName) || null,
         pricing: pricing,
         availableSpots: bundle.maxParticipants - bundle.currentParticipants,
         userRole: isCreator
@@ -1406,7 +1479,7 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
     });
 
     // Sort by relevance if search query is provided
-    if (searchQuery && searchQuery.trim() !== "") {
+    if (searchQuery && normalizeSearchQuery(searchQuery) !== "") {
       bundlesWithDetails.sort((a, b) => b.relevanceScore - a.relevanceScore);
     }
 
@@ -1423,9 +1496,9 @@ exports.searchBundlesByNameAndZip = async (req, res) => {
           hasSearchQuery: !!searchQuery,
         },
         customerLocation: {
-          zipCode: customer.address.zipCode,
-          address: customer.address,
-          searchUsedDefaultZip: !zipCode, // Indicates if customer's default ZIP was used
+          zipCode: customer?.address?.zipCode || searchZipCode,
+          address: customer?.address || null,
+          searchUsedDefaultZip: !!customer && !zipCode, // Indicates if customer's default ZIP was used
         },
         pagination: {
           current: parseInt(page),
@@ -1878,6 +1951,20 @@ exports.getUserBundles = async (req, res) => {
       Bundle.countDocuments(filter),
     ]);
 
+    const categoryTypeNames = [
+      ...new Set(
+        bundles.map((bundle) => bundle.categoryTypeName).filter(Boolean)
+      ),
+    ];
+    const categoryTypes = await CategoryType.find({
+      name: { $in: categoryTypeNames },
+    })
+      .select("name image")
+      .lean();
+    const categoryTypeImageMap = new Map(
+      categoryTypes.map((type) => [type.name, type.image || null])
+    );
+
     // Add pricing and role information
     const bundlesWithDetails = bundles.map((bundle) => {
       const pricing = bundle.calculateCustomerPrice();
@@ -1890,6 +1977,8 @@ exports.getUserBundles = async (req, res) => {
 
       return {
         ...bundle.toObject(),
+        categoryTypeImage:
+          categoryTypeImageMap.get(bundle.categoryTypeName) || null,
         pricing: pricing,
         availableSpots: bundle.maxParticipants - bundle.currentParticipants,
         userRole: isCreator
@@ -1941,6 +2030,16 @@ exports.getAllBundles = async (req, res) => {
     } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Mark expired bundles without deleting (keep for conversations/history)
+    const now = new Date();
+    await Bundle.updateMany(
+      {
+        serviceDate: { $lt: now },
+        status: { $nin: ["completed", "cancelled", "expired"] },
+      },
+      { $set: { status: "expired" } }
+    );
 
     // Build filter object
     const filter = {};
@@ -2474,3 +2573,4 @@ exports.addBundleReview = async (req, res) => {
     });
   }
 };
+

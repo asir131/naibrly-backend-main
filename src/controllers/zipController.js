@@ -1,5 +1,6 @@
 const ServiceProvider = require("../models/ServiceProvider");
 const Bundle = require("../models/Bundle");
+const CategoryType = require("../models/CategoryType");
 
 // Get provider's service areas
 exports.getProviderServiceAreas = async (req, res) => {
@@ -230,6 +231,17 @@ exports.getNearbyBundles = async (req, res) => {
     const { page = 1, limit = 10, status = "pending" } = req.query;
     const skip = (page - 1) * limit;
 
+    // Mark expired bundles without deleting (keep for conversations/history)
+    const now = new Date();
+    await Bundle.updateMany(
+      {
+        serviceDate: { $lt: now },
+        status: { $nin: ["completed", "cancelled", "expired"] },
+      },
+      { $set: { status: "expired" } }
+    );
+
+
     console.log("🔍 Fetching nearby bundles for provider:", req.user._id);
 
     // Get provider with service areas
@@ -314,9 +326,24 @@ exports.getNearbyBundles = async (req, res) => {
         "firstName lastName profileImage address"
       )
       .populate("provider", "businessNameRegistered businessLogo rating")
-      .sort({ createdAt: -1 })
+      // Soonest service date first; break ties by creation time
+      .sort({ serviceDate: 1, createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
+
+    const categoryTypeNames = [
+      ...new Set(
+        bundles.map((bundle) => bundle.categoryTypeName).filter(Boolean)
+      ),
+    ];
+    const categoryTypes = await CategoryType.find({
+      name: { $in: categoryTypeNames },
+    })
+      .select("name image")
+      .lean();
+    const categoryTypeImageMap = new Map(
+      categoryTypes.map((type) => [type.name, type.image || null])
+    );
 
     const total = await Bundle.countDocuments(filter);
 
@@ -346,6 +373,8 @@ exports.getNearbyBundles = async (req, res) => {
 
       return {
         ...bundle.toObject(),
+        categoryTypeImage:
+          categoryTypeImageMap.get(bundle.categoryTypeName) || null,
         matchScore: Math.round(matchScore),
         matchingServices: matchingServices.map((s) => s.name),
         providerAlreadyOffered: providerAlreadyOffered,
@@ -459,5 +488,6 @@ exports.getProvidersByZipCode = async (req, res) => {
     });
   }
 };
+
 
 
