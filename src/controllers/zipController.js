@@ -312,7 +312,7 @@ exports.getNearbyBundles = async (req, res) => {
     const filter = {
       zipCode: { $in: activeServiceZips }, // This should match the bundle's zipCode field
       status: status,
-      $expr: { $setIsSubset: ["$services.name", providerServices] },
+      "services.name": { $in: providerServices },
       "providerOffers.provider": { $ne: req.user._id },
       provider: { $ne: req.user._id }, // Don't show bundles already assigned to this provider
     };
