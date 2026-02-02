@@ -85,15 +85,13 @@ exports.submitVerification = async (req, res) => {
       req.body;
 
     // Validation - check all required fields
-    if (!einNumber || !firstName || !lastName || !businessRegisteredCountry) {
+    if (!einNumber || !businessRegisteredCountry) {
       console.log("Missing required fields");
       return res.status(400).json({
         success: false,
-        message: "EIN Number, first name, last name, and country are required",
+        message: "EIN Number and country are required",
         missingFields: {
           einNumber: !einNumber,
-          firstName: !firstName,
-          lastName: !lastName,
           businessRegisteredCountry: !businessRegisteredCountry,
         },
       });

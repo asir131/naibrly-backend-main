@@ -20,6 +20,10 @@ const serviceProviderSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     password: {
       type: String,
       required: [true, "Password is required"],

@@ -20,6 +20,10 @@ const customerSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     googleId: {
       type: String,
       default: "",

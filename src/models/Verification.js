@@ -51,12 +51,12 @@ const verificationSchema = new mongoose.Schema(
     },
     firstName: {
       type: String,
-      required: [true, "First name is required"],
+      required: false,
       trim: true,
     },
     lastName: {
       type: String,
-      required: [true, "Last name is required"],
+      required: false,
       trim: true,
     },
     status: {

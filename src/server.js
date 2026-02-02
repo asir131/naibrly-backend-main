@@ -185,6 +185,9 @@ app.use("/api/service-requests", require("./routes/serviceRequests"));
 // Password reset routes
 app.use("/api/auth/password-reset", require("./routes/passwordReset"));
 
+// Email verification routes
+app.use("/api/auth/email-verification", require("./routes/emailVerification"));
+
 // Verification routes
 app.use("/api/verify-information", require("./routes/verification"));
 
@@ -253,6 +256,7 @@ app.get("/", (req, res) => {
       zip: "/api/zip",
       serviceRequests: "/api/service-requests",
       passwordReset: "/api/auth/password-reset",
+      emailVerification: "/api/auth/email-verification",
       verification: "/api/verify-information",
       upload: "/api/upload",
       categories: "/api/categories",
