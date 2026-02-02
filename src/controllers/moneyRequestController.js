@@ -12,6 +12,7 @@ const {
 const WithdrawalRequest = require("../models/WithdrawalRequest");
 const { emitToUser } = require("../socket");
 const Notification = require("../models/Notification");
+const { sendPushToUser } = require("../utils/pushNotification");
 
 // Build and send realtime notification via Socket.IO
 const buildMoneyNotification = ({
@@ -62,6 +63,16 @@ const sendMoneyNotification = async ({
     customerId,
   });
   emitToUser(userId, "message", { type: "notification", data: payload });
+  await sendPushToUser({
+    userId,
+    title: payload.title,
+    body: payload.body,
+    data: {
+      link: payload.link || "",
+      serviceRequestId: serviceRequestId ? String(serviceRequestId) : "",
+      bundleId: bundleId ? String(bundleId) : "",
+    },
+  });
   // persist for offline users
   try {
     await Notification.create({
