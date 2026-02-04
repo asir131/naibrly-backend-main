@@ -72,6 +72,10 @@ const serviceProviderSchema = new mongoose.Schema(
         type: String,
         default: "",
       },
+      aptSuite: {
+        type: String,
+        default: "",
+      },
       city: {
         type: String,
         default: "",

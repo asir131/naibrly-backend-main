@@ -47,7 +47,7 @@ router.post("/login", adminLogin);
 router.patch(
   "/payout/:payoutInfoId/verify",
   adminAuth,
-  verifyPayoutInformation
+  verifyPayoutInformation,
 );
 
 // Protected admin routes
@@ -62,12 +62,12 @@ router.patch("/providers/:providerId/approve", adminAuth, approveProvider);
 router.patch(
   "/providers/:providerId/verification/approve",
   adminAuth,
-  approveProviderVerification
+  approveProviderVerification,
 );
 router.patch(
   "/providers/:providerId/verification/reject",
   adminAuth,
-  rejectProviderVerification
+  rejectProviderVerification,
 );
 router.patch("/users/:userId/:role/status", adminAuth, updateUserStatus);
 

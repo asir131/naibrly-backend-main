@@ -236,6 +236,7 @@ const registerProvider = async (req, res) => {
       businessNameRegistered,
       providerRole,
       businessAddressStreet,
+      businessAddressAptSuite,
       businessAddressCity,
       businessAddressState,
       businessAddressZipCode,
@@ -438,6 +439,8 @@ const registerProvider = async (req, res) => {
     const businessAddress = {};
     if (businessAddressStreet)
       businessAddress.street = businessAddressStreet.trim();
+    if (businessAddressAptSuite)
+      businessAddress.aptSuite = businessAddressAptSuite.trim();
     if (businessAddressCity) businessAddress.city = businessAddressCity.trim();
     if (businessAddressState)
       businessAddress.state = businessAddressState.trim();
